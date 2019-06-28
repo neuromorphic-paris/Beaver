@@ -76,6 +76,8 @@ class GUI:
         MainMenu.add_cascade(label="Help", menu=helpmenu)
         helpmenu.add_command(label="About...", command=about_command)
 
+        self.MainWindow.grid_columnconfigure(0, weight=1)
+        self.MainWindow.grid_rowconfigure(0, weight=1)
 
         self.Display = Figure(figsize=(5,5), dpi=150)
         self.DisplayAx = self.Display.add_subplot(111)
@@ -106,22 +108,42 @@ class GUI:
         self.CodePad = ScrolledText.ScrolledText(self.CodeFrame, width=100, height=60, bg = 'white')
         self.CodePad.grid(row = 1, column = 0)
         
+        self.ParamsFrame = Tk.Frame(self.MainWindow, width = 100, bd = 4, relief='groove')
+        self.ParamsFrame.grid(row = 2, column = 0, rowspan = 1, columnspan = 1, sticky=Tk.N+Tk.S+Tk.E+Tk.W)
+        self.ParamsTitleFrame = Tk.Frame(self.ParamsFrame)
+        self.ParamsTitleFrame.grid(row = 0, column = 0, columnspan = 2, sticky=Tk.N+Tk.S+Tk.W)
+        NameLabel = Tk.Label(self.ParamsTitleFrame, text = 'Name', width = 15, justify = 'left')
+        NameLabel.grid(row = 0, column = 0, sticky = Tk.W)
+        TypeLabel = Tk.Label(self.ParamsTitleFrame, text = 'Type', width = 15, justify = 'left')
+        TypeLabel.grid(row = 0, column = 1)
+        ValueLabel = Tk.Label(self.ParamsTitleFrame, text = 'Value', width = 10, justify = 'left')
+        ValueLabel.grid(row = 0, column = 2, sticky = Tk.E)
+
+        self.ParamsValuesFrame = Tk.Frame(self.ParamsFrame, bd = 2, relief='groove')
+        self.ParamsValuesFrame.grid(row = 1, column = 0, sticky = Tk.N+Tk.S+Tk.E+Tk.W)
+        self.ParamsButtonsFrame = Tk.Frame(self.ParamsFrame)
+        self.ParamsButtonsFrame.grid(row = 1, column = 1, sticky = Tk.N+Tk.S+Tk.E)
+        self.ParamsUpperButton = Tk.Button(self.ParamsButtonsFrame, text = '^', height = 10, command = partial(self.ChangeDisplayedParams, -1))
+        self.ParamsLowerButton = Tk.Button(self.ParamsButtonsFrame, text = 'v', height = 10, command = partial(self.ChangeDisplayedParams, +1))
+        self.ParamsUpperButton.grid(row = 0, column = 0)
+        self.ParamsLowerButton.grid(row = 1, column = 0)
+        self.DisplayedParams = []
+        self.NParamsDisplayed = 10
+        self.CurrentMinParamDisplayed = 0
+
+
+
         self.CompilationFrame = Tk.Frame(self.MainWindow)
-        self.CompilationFrame.grid(row = 1, column = 2)
+        self.CompilationFrame.grid(row = 1, column = 2, sticky=Tk.N+Tk.S)
         self.Premake4Button = Tk.Button(self.CompilationFrame, text = 'Premake4', command = self.GenerateBuild, font = tkFont.Font(size = 15))
         self.Premake4Button.grid(row = 0, column = 0)
         self.CompileButton = Tk.Button(self.CompilationFrame, text = 'Compile', command = self.GenerateBinary, font = tkFont.Font(size = 15))
         self.CompileButton.grid(row = 0, column = 1)
 
         self.ConsolePad = ScrolledText.ScrolledText(self.MainWindow, width=100, height=10, bg = 'black', fg = 'white')
-        self.ConsolePad.grid(row = 2, column = 2)
+        self.ConsolePad.grid(row = 2, column = 2, sticky=Tk.N+Tk.S)
         self.MAX_LOG_LINES = 50
         
-#        self.ConsoleFrame = Tk.Frame(self.MainWindow, width=700, height=400)
-#        self.ConsoleFrame.grid(row = 1, column = 2)
-#        wid = self.ConsoleFrame.winfo_id()
-#        os.system('xterm -into %d -geometry 200x20 -sb &' % wid)
-
         self.DrawFramework()
 
         self.MainWindow.mainloop()
@@ -172,6 +194,8 @@ class GUI:
         self.AvailablesModulesPositions.pop(self.SelectedAvailableModulePosition)
         self.AddAvailableSlots(self.DisplayedModulesPositions[self.Framework.Modules[-1]['id']], self.Framework.Modules[-1]['module'])
         self.DrawFramework()
+        self.ActiveModule = len(self.Framework.Modules)-1
+        self.ChangeDisplayedParams(0)
 
     def SetType(self, Type):
         None
@@ -232,6 +256,7 @@ class GUI:
         self.DisplayAx.set_xlim(minValues[0], maxValues[0])
         self.DisplayAx.set_ylim(minValues[1], maxValues[1])
         self.Display.canvas.show()
+        self.Log("Done.")
         
     def DrawModule(self, ModulePosition, ModuleName, color, alpha = 1):
         DXs = (self.ModulesDiameter/2 * np.array([np.array([-1, -1]), np.array([-1, 1]), np.array([1, 1]), np.array([1, -1])])).tolist()
@@ -247,4 +272,24 @@ class GUI:
                 continue
             self.AvailablesModulesPositions += [LastAddedPosition + PossibleAdd]
     
+    def ChangeDisplayedParams(self, Mod):
+        for Trio in self.DisplayedParams:
+            for Field in Trio:
+                Field.destroy()
+        if not self.ActiveModule is None:
+            ModuleParameters = self.Framework.Modules[self.ActiveModule]['module']['parameters']
+            if Mod == 0:
+                self.CurrentMinParamDisplayed = 0
+            else:
+                self.CurrentMinParamDisplayed = max(0, min(len(ModuleParameters.keys()), self.CurrentMinParamDisplayed + Mod))
+            self.DisplayedParams = []
+            for NParam in range(self.CurrentMinParamDisplayed, self.CurrentMinParamDisplayed + self.NParamsDisplayed):
+                self.DisplayedParams += [[]]
+                self.DisplayedParams[-1] += [Tk.Label(self.ParamsValuesFrame, text = ModuleParameters[NParam]['name'], width = 15, justify = 'left').grid(row=len(self.DisplayedParams)-1, column=0, sticky = Tk.N)]
+                self.DisplayedParams[-1] += [Tk.Label(self.ParamsValuesFrame, text = ModuleParameters[NParam]['type'], width = 15, justify = 'left').grid(row=len(self.DisplayedParams)-1, column=1, sticky = Tk.N)]
+                if 'default' in ModuleParameters[NParam].keys():
+                    default = ModuleParameters[NParam]['default']
+                else:
+                    default = ''
+                self.DisplayedParams[-1] += [Tk.Entry(self.ParamsValuesFrame, text = default, width = 60, justify = 'left', bg = 'white').grid(row=len(self.DisplayedParams)-1, column=2, sticky = Tk.N+Tk.E)]
 G = GUI()
