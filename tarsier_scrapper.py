@@ -1,7 +1,8 @@
 import sys
 import os
 
-TARSIER_SOURCE_FOLDER = 'tarsier/source/'
+TARSIER_FOLDER = 'third_party/tarsier/'
+TARSIER_SOURCE_FOLDER = 'third_party/tarsier/source/'
 TARSIER_NAMESPACE_INDICATOR = 'namespace tarsier'
 
 COMMENT_INDICATOR = '//'
@@ -113,6 +114,7 @@ def ScrapTarsierFolder():
                 Modules[ModuleName] = {}
                 Modules[ModuleName]['parameters'] = ExtractArguments(Lines, StartLine)
                 Modules[ModuleName]['templates'] = ExtractTemplates(Lines, StartLine)
+                Modules[ModuleName]['origin'] = 'tarsier'
     return Modules
 
 if __name__ == '__main__':

@@ -1,7 +1,8 @@
 import sys
 import os
 
-SEPIA_SOURCE_FOLDER = 'sepia/source/'
+SEPIA_FOLDER = 'third_party/sepia/'
+SEPIA_SOURCE_FOLDER = SEPIA_FOLDER + 'source/'
 SEPIA_NAMESPACE_INDICATOR = 'namespace sepia'
 
 COMMENT_INDICATOR = '//'
@@ -50,7 +51,7 @@ def GetSepiaTypes(Lines):
         else:
             RawDefault = None
         if RawType.strip():
-            Types[RawType.strip()] = {'value': RawDefault}
+            Types[RawType.strip()] = {'value': RawDefault, 'origin': 'sepia'}
     return Types
 
 def FindTemplateFunctions(Lines, funcName):
@@ -148,6 +149,7 @@ def ScrapSepiaFile():
         Modules[funcName] = {}
         Modules[funcName]['parameters'] = ExtractArguments(Lines, StartLine)
         Modules[funcName]['templates'] = ExtractTemplates(Lines, StartLine)
+        Modules[funcName]['origin'] = 'sepia'
     Types = GetSepiaTypes(Lines)
     return Modules, Types
 

@@ -26,10 +26,21 @@ def about_command():
         
 class GUI:
     def __init__(self):
-        self.Framework = framework_abstractor.FrameworkAbstraction()
+        self.Framework = framework_abstractor.FrameworkAbstraction(LogFunction = self.Log)
 
         TarsierModules = tarsier_scrapper.ScrapTarsierFolder()
         SepiaModules, SepiaTypes = sepia_scrapper.ScrapSepiaFile()
+
+        self.AvailableModules = {}
+        for ModuleName, Module in TarsierModules.items():
+            self.AvailableModules[ModuleName] = Module
+        for ModuleName, Module in SepiaModules.items():
+            self.AvailableModules[ModuleName] = Module
+
+        self.AvailableTypes = {}
+        for TypeName, Type in SepiaTypes.items():
+            self.AvailableTypes[TypeName] = Type
+
 
         self.MainWindow = Tk.Tk()
         self.MainWindow.title('Beaver - Untitled')
@@ -89,13 +100,14 @@ class GUI:
         
         self.CompilationFrame = Tk.Frame(self.MainWindow)
         self.CompilationFrame.grid(row = 1, column = 2)
-        self.Premake4Button = Tk.Button(self.CompilationFrame, text = 'Premake4', command = self.GenerateCode, font = tkFont.Font(size = 15))
+        self.Premake4Button = Tk.Button(self.CompilationFrame, text = 'Premake4', command = self.GenerateBuild, font = tkFont.Font(size = 15))
         self.Premake4Button.grid(row = 0, column = 0)
-        self.CompileButton = Tk.Button(self.CompilationFrame, text = 'Compile', command = self.GenerateCode, font = tkFont.Font(size = 15))
+        self.CompileButton = Tk.Button(self.CompilationFrame, text = 'Compile', command = self.GenerateBinary, font = tkFont.Font(size = 15))
         self.CompileButton.grid(row = 0, column = 1)
 
         self.ConsolePad = ScrolledText.ScrolledText(self.MainWindow, width=100, height=10, bg = 'black', fg = 'white')
         self.ConsolePad.grid(row = 2, column = 2)
+        self.MAX_LOG_LINES = 50
         
 #        self.ConsoleFrame = Tk.Frame(self.MainWindow, width=700, height=400)
 #        self.ConsoleFrame.grid(row = 1, column = 2)
@@ -116,11 +128,10 @@ class GUI:
         file = tkFileDialog.asksaveasfile(mode='w', initialdir = PROJECTS_DIR, defaultextension='.json', title = "New project", filetypes=[("JSON","*.json")])
         if file is None:
             return None
-        self.Framework = framework_abstractor.FrameworkAbstraction()
-        self.Framework.Name = file.name
+        self.Framework = framework_abstractor.FrameworkAbstraction(LogFunction = self.Log)
+        self.Framework.Framework['name'] = file.name.split('/')[-1].split('.json')[0]
+        self.SetDisplayedCodefile(self.Framework.Files.keys()[0])
         self.MainWindow.title('Beaver - {0}'.format(file.name))
-        self.CodePad.delete('1.0', Tk.END)
-        self.CodePad.insert(Tk.END, self.Framework.Files[self.CodeCurrentFile])
 
         self.DisplayUpdate()
 
@@ -150,9 +161,33 @@ class GUI:
         None
 
     def GenerateCode(self):
+        self.Framework.GenerateCode()
+
+    def GenerateBuild(self):
+        LuaFilename = self.Framework.GenerateBuild()
+        self.SetDisplayedCodefile(LuaFilename)
+
+    def GenerateBinary(self):
         None
 
     def DisplayUpdate(self):
         None
+
+    def SetDisplayedCodefile(self, Codefile):
+        self.CodePad.delete('1.0', Tk.END)
+        self.CodeCurrentFile = Codefile
+        self.CodeFileVar.set(self.CodeCurrentFile)
+        self.CodePad.insert(Tk.END, self.Framework.Files[self.CodeCurrentFile])
+
+    def Log(self, string):
+        if string[-1] != '\n':
+            string = string+'\n'
+        self.ConsolePad.insert(Tk.END, string)
+        CurrentText = self.ConsolePad.get('1.0', Tk.END+'-1c')
+        if CurrentText.count('\n') > self.MAX_LOG_LINES:
+            CurrentText = '\n'.join(CurrentText.split('\n')[-self.MAX_LOG_LINES:])
+            self.ConsolePad.delete('1.0', Tk.END)
+            self.ConsolePad.insert(Tk.END, CurrentText)
+        self.ConsolePad.see('end')
 
 G = GUI()
