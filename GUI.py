@@ -14,6 +14,7 @@ import tkFileDialog
 import tkFont
 
 import os
+from functools import partial
 matplotlib.use("TkAgg")
 
 import tarsier_scrapper
@@ -61,11 +62,11 @@ class GUI:
         tarsiermenu = Tk.Menu(insertmenu)
         insertmenu.add_cascade(label = "Tarsier", menu = tarsiermenu)
         for Module in TarsierModules.keys():
-            tarsiermenu.add_command(label=Module, command=lambda : self.AddModule(Module))
+            tarsiermenu.add_command(label=Module, command=partial(self.AddModule, str(Module)))
         sepiamenu = Tk.Menu(insertmenu)
         insertmenu.add_cascade(label = "Sepia", menu = sepiamenu)
         for Module in SepiaModules.keys():
-            sepiamenu.add_command(label=Module, command=lambda : self.AddModule(Module))
+            sepiamenu.add_command(label=Module, command=partial(self.AddModule, str(Module)))
         sepiamenu.add_separator()
         for Type in SepiaTypes.keys():
             sepiamenu.add_command(label=Type, command=lambda : self.SetType(Type))
@@ -84,6 +85,13 @@ class GUI:
         self.DisplayCanvas = FigureCanvasTkAgg(self.Display, self.MainWindow)
         self.DisplayCanvas.show()
         self.DisplayCanvas.get_tk_widget().grid(row = 0, column = 0)
+
+        self.AvailablesModulesPositions = [np.array([0,0])]
+        self.SelectedAvailableModulePosition = 0
+        self.ModulesDiameter = 1.
+        self.ModulesTilingDistance = 2.
+        self.DisplayedModulesPositions = {}
+        self.ActiveModule = None
         
         self.CodeGenerationButton = Tk.Button(self.MainWindow, text = '>', command = self.GenerateCode, font = tkFont.Font(size = 20))
         self.CodeGenerationButton.grid(row = 0, column = 1)
@@ -114,6 +122,8 @@ class GUI:
 #        wid = self.ConsoleFrame.winfo_id()
 #        os.system('xterm -into %d -geometry 200x20 -sb &' % wid)
 
+        self.DrawFramework()
+
         self.MainWindow.mainloop()
 
     def _on_closing(self):
@@ -133,7 +143,7 @@ class GUI:
         self.SetDisplayedCodefile(self.Framework.Files.keys()[0])
         self.MainWindow.title('Beaver - {0}'.format(file.name))
 
-        self.DisplayUpdate()
+        self.DrawFramework()
 
     def save_command(self):
         None
@@ -154,8 +164,14 @@ class GUI:
             self.CodePad.insert('1.0',contents)
             file.close()
 
-    def AddModule(self, Module):
-        print "Adding " + Module
+    def AddModule(self, ModuleName):
+        self.Log("Adding " + ModuleName)
+        self.Framework.AddModule(self.AvailableModules[ModuleName])
+        self.DisplayedModulesPositions[self.Framework.Modules[-1]['id']] = self.AvailablesModulesPositions[self.SelectedAvailableModulePosition]
+
+        self.AvailablesModulesPositions.pop(self.SelectedAvailableModulePosition)
+        self.AddAvailableSlots(self.DisplayedModulesPositions[self.Framework.Modules[-1]['id']], self.Framework.Modules[-1]['module'])
+        self.DrawFramework()
 
     def SetType(self, Type):
         None
@@ -168,9 +184,6 @@ class GUI:
         self.SetDisplayedCodefile(LuaFilename)
 
     def GenerateBinary(self):
-        None
-
-    def DisplayUpdate(self):
         None
 
     def SetDisplayedCodefile(self, Codefile):
@@ -190,4 +203,48 @@ class GUI:
             self.ConsolePad.insert(Tk.END, CurrentText)
         self.ConsolePad.see('end')
 
+    def DrawFramework(self):
+        self.Log("Drawing...")
+        minValues = np.array([0., 0.])
+        maxValues = np.array([0., 0.])
+
+        self.DisplayAx.clear()
+        for Module in self.Framework.Modules:
+            if self.Framework.WellDefinedModule(Module):
+                color = 'g'
+            else:
+                color = 'r'
+            self.DrawModule(self.DisplayedModulesPositions[Module['id']], Module['module']['name'], color)
+            minValues = np.minimum(minValues, self.DisplayedModulesPositions[Module['id']] - self.ModulesDiameter)
+            maxValues = np.maximum(maxValues, self.DisplayedModulesPositions[Module['id']] + self.ModulesDiameter)
+        for nSlot, AvailableSlot in enumerate(self.AvailablesModulesPositions):
+            if nSlot == self.SelectedAvailableModulePosition:
+                alpha = 0.7
+            else:
+                alpha = 0.3
+            self.DrawModule(AvailableSlot, '', 'grey', alpha)
+            minValues = np.minimum(minValues, AvailableSlot - self.ModulesDiameter)
+            maxValues = np.maximum(maxValues, AvailableSlot + self.ModulesDiameter)
+        Center = (minValues + maxValues)/2.
+        MaxAxis = (maxValues - minValues).max()
+        minValues = Center - MaxAxis/2.
+        maxValues = Center + MaxAxis/2.
+        self.DisplayAx.set_xlim(minValues[0], maxValues[0])
+        self.DisplayAx.set_ylim(minValues[1], maxValues[1])
+        self.Display.canvas.show()
+        
+    def DrawModule(self, ModulePosition, ModuleName, color, alpha = 1):
+        DXs = (self.ModulesDiameter/2 * np.array([np.array([-1, -1]), np.array([-1, 1]), np.array([1, 1]), np.array([1, -1])])).tolist()
+        for nDX in range(len(DXs)):
+            self.DisplayAx.plot([(ModulePosition + DXs[nDX])[0], (ModulePosition + DXs[(nDX+1)%4])[0]], [(ModulePosition + DXs[nDX])[1], (ModulePosition + DXs[(nDX+1)%4])[1]], color = color, alpha = alpha)
+        TextPosition = ModulePosition + self.ModulesDiameter/2 * 0.9 * np.array([-1, -1])
+        self.DisplayAx.text(TextPosition[0], TextPosition[1], s = ModuleName, color = color, alpha = alpha)
+    
+    def AddAvailableSlots(self, LastAddedPosition, AddedModule):
+        PossibleAdds = [self.ModulesTilingDistance * np.array([-1., 0.]), self.ModulesTilingDistance * np.array([1., 0.]), self.ModulesTilingDistance * np.array([0., -1.])]
+        for PossibleAdd in PossibleAdds:
+            if (abs(np.array(self.DisplayedModulesPositions.values()) - (LastAddedPosition + PossibleAdd)) < self.ModulesDiameter).all(axis = 1).any(axis = 0):
+                continue
+            self.AvailablesModulesPositions += [LastAddedPosition + PossibleAdd]
+    
 G = GUI()

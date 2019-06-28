@@ -115,6 +115,7 @@ def ScrapTarsierFolder():
                 Modules[ModuleName]['parameters'] = ExtractArguments(Lines, StartLine)
                 Modules[ModuleName]['templates'] = ExtractTemplates(Lines, StartLine)
                 Modules[ModuleName]['origin'] = 'tarsier'
+                Modules[ModuleName]['name'] = ModuleName
     return Modules
 
 if __name__ == '__main__':

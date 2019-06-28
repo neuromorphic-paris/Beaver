@@ -150,6 +150,7 @@ def ScrapSepiaFile():
         Modules[funcName]['parameters'] = ExtractArguments(Lines, StartLine)
         Modules[funcName]['templates'] = ExtractTemplates(Lines, StartLine)
         Modules[funcName]['origin'] = 'sepia'
+        Modules[funcName]['name'] = funcName
     Types = GetSepiaTypes(Lines)
     return Modules, Types
 

@@ -10,6 +10,8 @@ class FrameworkAbstraction:
         self.Modules = self.Framework['modules']
         self.EventsTypes = self.Framework['events_types']
         self.Files = self.Framework['files'] # Abstracted Files, not actual ones
+
+        self.ModulesIDs = []
         
         self.HasChameleon = False
         self.HasTariser = False
@@ -27,6 +29,14 @@ class FrameworkAbstraction:
     def _LoadFramework(self, file):
         None
 
+    def AddModule(self, Module):
+        if not self.ModulesIDs:
+            NewID = 0
+        else:
+            NewID = max(self.ModulesIDs) + 1
+        self.Modules += [{'module': Module, 'id': NewID, 'parameters': []}]
+        self.ModulesIDs += [NewID]
+
     def GenerateCode(self):
         self.Writer.WriteCode(self.Framework)
 
@@ -39,6 +49,12 @@ class FrameworkAbstraction:
         LuaFilename = self.Writer.CreateLUAFile(self.Framework['name'], ChameleonModules)
         self.Files[LuaFilename] = LoadFile(LuaFilename)
         return LuaFilename
+
+    def WellDefinedModule(self, Module):
+        if len(Module['parameters']) == len(Module['module']['parameters']):
+            return True
+        else:
+            return False
 
 def LoadFile(Filename):
     with open(Filename, 'r') as f:
