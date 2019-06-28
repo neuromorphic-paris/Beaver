@@ -1,0 +1,9 @@
+[submodule "third_party/tarsier"]
+	path = third_party/tarsier
+	url = https://github.com/neuromorphic-paris/tarsier.git
+[submodule "third_party/sepia"]
+	path = third_party/sepia
+	url = https://github.com/neuromorphic-paris/sepia.git
+[submodule "third_party/chameleon"]
+	path = third_party/chameleon
+	url = https://github.com/neuromorphic-paris/chameleon.git
