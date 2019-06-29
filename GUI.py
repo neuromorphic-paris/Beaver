@@ -14,6 +14,7 @@ import tkFileDialog
 import tkFont
 
 import os
+import json
 from functools import partial
 matplotlib.use("TkAgg")
 
@@ -28,6 +29,7 @@ def about_command():
 class GUI:
     def __init__(self):
         self.Framework = framework_abstractor.FrameworkAbstraction(LogFunction = self.Log)
+        self.FrameworkFileName = ''
 
         TarsierModules = tarsier_scrapper.ScrapTarsierFolder()
         SepiaModules, SepiaTypes = sepia_scrapper.ScrapSepiaFile()
@@ -42,6 +44,7 @@ class GUI:
         for TypeName, Type in SepiaTypes.items():
             self.AvailableTypes[TypeName] = Type
 
+        self.UserDefinedVariableTypes = ['Struct', 'Lambda Function']
 
         self.MainWindow = Tk.Tk()
         self.MainWindow.title('Beaver - Untitled')
@@ -59,6 +62,12 @@ class GUI:
 
         insertmenu = Tk.Menu(MainMenu)
         MainMenu.add_cascade(label="Insert", menu = insertmenu)
+        newmenu = Tk.Menu(insertmenu)
+        insertmenu.add_cascade(label = "New", menu = newmenu)
+        for Type in self.UserDefinedVariableTypes:
+            newmenu.add_command(label=Type, command=partial(self.AddNewType, Type))
+        insertmenu.add_separator()
+
         tarsiermenu = Tk.Menu(insertmenu)
         insertmenu.add_cascade(label = "Tarsier", menu = tarsiermenu)
         for Module in TarsierModules.keys():
@@ -95,8 +104,14 @@ class GUI:
         self.DisplayedModulesPositions = {}
         self.ActiveModule = None
         
-        self.CodeGenerationButton = Tk.Button(self.MainWindow, text = '>', command = self.GenerateCode, font = tkFont.Font(size = 20))
-        self.CodeGenerationButton.grid(row = 0, column = 1)
+        self.DisplayCodeLinkFrame = Tk.Frame(self.MainWindow)
+        self.DisplayCodeLinkFrame.grid(row = 0, column = 1)
+        self.ModuleCodeDisplayButton = Tk.Button(self.DisplayCodeLinkFrame, text = '?', command = self.DisplayModuleCode, font = tkFont.Font(size = 20))
+        self.ModuleCodeDisplayButton.grid(row = 0, column = 0)
+        self.CodeGenerationButton = Tk.Button(self.DisplayCodeLinkFrame, text = 'C++', command = self.GenerateCode, font = tkFont.Font(size = 20))
+        self.CodeGenerationButton.grid(row = 1, column = 0)
+
+        self.TempFiles = {}
 
         self.CodeFrame = Tk.Frame(self.MainWindow)
         self.CodeFrame.grid(row = 0, column = 2)
@@ -105,8 +120,9 @@ class GUI:
         self.CodeFileVar.set(self.CodeCurrentFile)
         self.CodeFileMenu = Tk.OptionMenu(self.CodeFrame, self.CodeFileVar, *self.Framework.Files)
         self.CodeFileMenu.grid(row = 0, column = 0)
-        self.CodePad = ScrolledText.ScrolledText(self.CodeFrame, width=100, height=60, bg = 'white')
+        self.CodePad = ScrolledText.ScrolledText(self.CodeFrame, width=100, height=40, bg = 'white')
         self.CodePad.grid(row = 1, column = 0)
+        self.UpdateCodeMenu()
         
         self.ParamsFrame = Tk.Frame(self.MainWindow, width = 100, bd = 4, relief='groove')
         self.ParamsFrame.grid(row = 2, column = 0, rowspan = 1, columnspan = 1, sticky=Tk.N+Tk.S+Tk.E+Tk.W)
@@ -127,10 +143,10 @@ class GUI:
         self.ParamsLowerButton = Tk.Button(self.ParamsButtonsFrame, text = 'v', height = 10, command = partial(self.ChangeDisplayedParams, +1))
         self.ParamsUpperButton.grid(row = 0, column = 0)
         self.ParamsLowerButton.grid(row = 1, column = 0)
+        self.CurrentParams = []
         self.DisplayedParams = []
         self.NParamsDisplayed = 10
         self.CurrentMinParamDisplayed = 0
-
 
 
         self.CompilationFrame = Tk.Frame(self.MainWindow)
@@ -158,45 +174,103 @@ class GUI:
         if self.Framework.Modules:
             if not tkMessageBox.askokcancel("New", "Unsaved framework. Erase anyway ?"):
                 return None
-        file = tkFileDialog.asksaveasfile(mode='w', initialdir = PROJECTS_DIR, defaultextension='.json', title = "New project", filetypes=[("JSON","*.json")])
-        if file is None:
-            return None
-        self.Framework = framework_abstractor.FrameworkAbstraction(LogFunction = self.Log)
-        self.Framework.Framework['name'] = file.name.split('/')[-1].split('.json')[0]
-        self.SetDisplayedCodefile(self.Framework.Files.keys()[0])
-        self.MainWindow.title('Beaver - {0}'.format(file.name))
+        with tkFileDialog.asksaveasfile(mode='w', initialdir = PROJECTS_DIR, defaultextension='.json', title = "New project", filetypes=[("JSON","*.json")]) as file:
+            if file is None:
+                return None
+            self.Framework = framework_abstractor.FrameworkAbstraction(LogFunction = self.Log)
+            self.Framework.Data['name'] = file.name.split('/')[-1].split('.json')[0]
+            self.SetDisplayedCodefile(self.Framework.Files.keys()[0], SaveCurrentFile = False)
+            self.FrameworkFileName = file.name
+            self.MainWindow.title('Beaver - {0}'.format(self.Framework.Data['name']))
 
         self.DrawFramework()
 
     def save_command(self):
-        None
+        self.RegisterCurrentCodePad()
+        if self.FrameworkFileName:
+            with open(self.FrameworkFileName, "w") as file:
+                if not file is None:
+                    json.dump(self.Framework.Data, file)
+                    self.Log("Saved.")
+                else:
+                    self.Log("Something went wrong while saving project.")
+        else:
+            self.saveas_command()
 
     def saveas_command(self):
-        file = tkFileDialog.asksaveasfile(mode='w')
-        if not file is None:
-            # slice off the last character from get, as an extra return is added
-            data = self.CodePad.get('1.0', Tk.END+'-1c')
-            file.write(data)
-            file.close()
+        self.RegisterCurrentCodePad()
+        with tkFileDialog.asksaveasfile(mode='w', initialdir = PROJECTS_DIR, initialfile = self.Framework.Data['name'], defaultextension='.json', title = "Save as...", filetypes=[("JSON","*.json")]) as file:
+            if not file is None:
+                NewName =  file.name.split('/')[-1].split('.json')[0]
+                if self.Framework.Data['name']:
+                    if NewName != self.Framework.Data['name'] and tkMessageBox.askyesno("Name changed", "Do you want to change project name from \n{0} \nto {1} ?"):
+                        self.Framework.Data['name'] = NewName
+                        self.MainWindow.title('Beaver - {0}'.format(self.Framework.Data['name']))
+                else:
+                    self.Framework.Data['name'] = NewName
+                    self.MainWindow.title('Beaver - {0}'.format(self.Framework.Data['name']))
+
+                json.dump(self.Framework.Data, file)
+                self.FrameworkFileName = file.name
+                self.Log("Saved.")
         
     def open_command(self):
-        file = tkFileDialog.askopenfile(parent=self.MainWindow,mode='rb',title='Select a file')
-        if file != None:
-            contents = file.read()
-            self.CodePad.delete('1.0', Tk.END)
-            self.CodePad.insert('1.0',contents)
-            file.close()
+        with tkFileDialog.askopenfile(parent=self.MainWindow,mode='rb', initialdir = PROJECTS_DIR, title='Open...', defaultextension='.json', filetypes=[("JSON","*.json")]) as file:
+            if file != None:
+                Data = json.load(file)
+                self.Framework = framework_abstractor.FrameworkAbstraction(Data, self.Log)
+                self.FrameworkFileName = file.name
+                self.MainWindow.title('Beaver - {0}'.format(self.Framework.Data['name']))
+
+                self.TempFiles = {}
+                self.CurrentParams = []
+                self.DisplayedParams = []
+                self.CurrentMinParamDisplayed = 0
+                self.AvailablesModulesPositions = [np.array([0,0])]
+                self.SelectedAvailableModulePosition = 0
+                self.DisplayedModulesPositions = {}
+
+                self.UpdateCodeMenu()
+                for Module in self.Framework.Modules:
+                    self.AddModuleDisplay(Module, AutoDraw = False)
+                self.ActiveModule = 0
+                self.ChangeDisplayedParams(0)
+                try:
+                    self.SetDisplayedCodefile('Documentation', SaveCurrentFile = False)
+                except:
+                    self.SetDisplayedCodefile(self.Framework.Files.keys()[0], SaveCurrentFile = False)
+        self.DrawFramework()
+
+    def RegisterCurrentCodePad(self):
+        if self.CodeCurrentFile in self.TempFiles.keys():
+            return None
+        CurrentText = self.CodePad.get('1.0', Tk.END+'-1c')
+        self.Framework.Files[self.CodeCurrentFile] = CurrentText
 
     def AddModule(self, ModuleName):
         self.Log("Adding " + ModuleName)
         self.Framework.AddModule(self.AvailableModules[ModuleName])
-        self.DisplayedModulesPositions[self.Framework.Modules[-1]['id']] = self.AvailablesModulesPositions[self.SelectedAvailableModulePosition]
+        self.AddModuleDisplay(self.Framework.Modules[-1], AutoDraw = True)
 
+    def AddModuleDisplay(self, Module, AutoDraw):
+        self.DisplayedModulesPositions[Module['id']] = self.AvailablesModulesPositions[self.SelectedAvailableModulePosition]
         self.AvailablesModulesPositions.pop(self.SelectedAvailableModulePosition)
-        self.AddAvailableSlots(self.DisplayedModulesPositions[self.Framework.Modules[-1]['id']], self.Framework.Modules[-1]['module'])
-        self.DrawFramework()
-        self.ActiveModule = len(self.Framework.Modules)-1
-        self.ChangeDisplayedParams(0)
+        self.AddAvailableSlots(self.DisplayedModulesPositions[Module['id']], Module['module'])
+        if AutoDraw:
+            self.ActiveModule = len(self.Framework.Modules)-1
+            self.DrawFramework()
+            self.ChangeDisplayedParams(0)
+
+    def AddNewType(self, Type):
+        TmpName = Type
+        if TmpName in self.Framework.UserWrittenCode:
+            self.Log("Already underdefined type {0} in this project. Fill in name first before defining a new one.")
+            self.SetDisplayedCodefile(TmpName)
+            return None
+        self.Framework.UserWrittenCode += [TmpName]
+        self.Framework.Files[TmpName] = GenerateNewType(Type)
+        self.UpdateCodeMenu()
+        self.SetDisplayedCodefile(TmpName)
 
     def SetType(self, Type):
         None
@@ -206,16 +280,35 @@ class GUI:
 
     def GenerateBuild(self):
         LuaFilename = self.Framework.GenerateBuild()
+        self.UpdateCodeMenu()
         self.SetDisplayedCodefile(LuaFilename)
 
     def GenerateBinary(self):
         None
 
-    def SetDisplayedCodefile(self, Codefile):
+    def DisplayModuleCode(self):
+        if not self.ActiveModule is None:
+            Module = self.Framework.Modules[self.ActiveModule]
+            if Module['module']['origin'] == 'tarsier':
+                self.TempFiles[Module['module']['name'] + '.hpp'] = '\n'.join(tarsier_scrapper.GetTarsierCode(Module['module']['name'] + '.hpp', Full = True))
+            self.SetDisplayedCodefile(Module['module']['name'] + '.hpp')
+
+    def UpdateCodeMenu(self):
+        Menu = self.CodeFileMenu['menu']
+        Menu.delete(0, "end") 
+        for FileName in self.Framework.Files.keys():
+            Menu.add_command(label = FileName, command = partial(self.SetDisplayedCodefile, FileName))
+
+    def SetDisplayedCodefile(self, Codefile, SaveCurrentFile = True):
+        if SaveCurrentFile:
+            self.RegisterCurrentCodePad()
         self.CodePad.delete('1.0', Tk.END)
         self.CodeCurrentFile = Codefile
         self.CodeFileVar.set(self.CodeCurrentFile)
-        self.CodePad.insert(Tk.END, self.Framework.Files[self.CodeCurrentFile])
+        if self.CodeCurrentFile in self.Framework.Files.keys():
+            self.CodePad.insert(Tk.END, self.Framework.Files[self.CodeCurrentFile])
+        else:
+            self.CodePad.insert(Tk.END, self.TempFiles[self.CodeCurrentFile])
 
     def Log(self, string):
         if string[-1] != '\n':
@@ -229,7 +322,7 @@ class GUI:
         self.ConsolePad.see('end')
 
     def DrawFramework(self):
-        self.Log("Drawing...")
+        #self.Log("Drawing...")
         minValues = np.array([0., 0.])
         maxValues = np.array([0., 0.])
 
@@ -257,14 +350,14 @@ class GUI:
         self.DisplayAx.set_xlim(minValues[0], maxValues[0])
         self.DisplayAx.set_ylim(minValues[1], maxValues[1])
         self.Display.canvas.show()
-        self.Log("Done.")
+        #self.Log("Done.")
         
     def DrawModule(self, ModulePosition, ModuleName, color, alpha = 1):
         DXs = (self.ModulesDiameter/2 * np.array([np.array([-1, -1]), np.array([-1, 1]), np.array([1, 1]), np.array([1, -1])])).tolist()
         for nDX in range(len(DXs)):
             self.DisplayAx.plot([(ModulePosition + DXs[nDX])[0], (ModulePosition + DXs[(nDX+1)%4])[0]], [(ModulePosition + DXs[nDX])[1], (ModulePosition + DXs[(nDX+1)%4])[1]], color = color, alpha = alpha)
-        TextPosition = ModulePosition + self.ModulesDiameter/2 * 0.9 * np.array([-1, -1])
-        self.DisplayAx.text(TextPosition[0], TextPosition[1], s = ModuleName, color = color, alpha = alpha)
+        TextPosition = ModulePosition + self.ModulesDiameter/2 * 0.8 * np.array([-1, -1])
+        self.DisplayAx.text(TextPosition[0], TextPosition[1], s = ModuleName, color = color, alpha = alpha, fontsize = 8)
     
     def AddAvailableSlots(self, LastAddedPosition, AddedModule):
         PossibleAdds = [self.ModulesTilingDistance * np.array([-1., 0.]), self.ModulesTilingDistance * np.array([1., 0.]), self.ModulesTilingDistance * np.array([0., -1.])]
@@ -284,13 +377,21 @@ class GUI:
             else:
                 self.CurrentMinParamDisplayed = max(0, min(len(ModuleParameters.keys()), self.CurrentMinParamDisplayed + Mod))
             self.DisplayedParams = []
+            self.CurrentParams = []
             for NParam in range(self.CurrentMinParamDisplayed, min(len(ModuleParameters), self.CurrentMinParamDisplayed + self.NParamsDisplayed)):
                 self.DisplayedParams += [[]]
                 self.DisplayedParams[-1] += [Tk.Label(self.ParamsValuesFrame, text = ModuleParameters[NParam]['name'], width = 20, justify = 'left').grid(row=len(self.DisplayedParams)-1, column=0, sticky = Tk.N)]
                 self.DisplayedParams[-1] += [Tk.Label(self.ParamsValuesFrame, text = ModuleParameters[NParam]['type'], width = 20, justify = 'left').grid(row=len(self.DisplayedParams)-1, column=1, sticky = Tk.N)]
+                self.CurrentParams += [Tk.StringVar(self.MainWindow)]
+                self.DisplayedParams[-1] += [Tk.Entry(self.ParamsValuesFrame, textvariable = self.CurrentParams[-1], width = 40, justify = 'left', bg = 'white').grid(row=len(self.DisplayedParams)-1, column=2, sticky = Tk.N+Tk.E)]
                 if 'default' in ModuleParameters[NParam].keys():
-                    default = ModuleParameters[NParam]['default']
-                else:
-                    default = ''
-                self.DisplayedParams[-1] += [Tk.Entry(self.ParamsValuesFrame, text = default, width = 40, justify = 'left', bg = 'white').grid(row=len(self.DisplayedParams)-1, column=2, sticky = Tk.N+Tk.E)]
+                    self.CurrentParams[-1].set(ModuleParameters[NParam]['default'])
+
+def GenerateNewType(Type):
+    if Type == 'Struct':
+        File = 'struct {\n};'
+    elif Type == 'Lambda Function':
+        File = '[&]() {\n}'
+    return File
+
 G = GUI()

@@ -11,7 +11,7 @@ MAKE_FUNCTION_INDICATOR = 'make_'
 TEMPLATE_LINE_INDICATOR = 'template'
 TEMPLATE_PARAM_TYPE = 'typename'
 
-def Is_Tarsier_Module(Filename):
+def GetTarsierCode(Filename, Full = False):
     with open(TARSIER_SOURCE_FOLDER + Filename, 'r') as f:
         Lines = []
         FoundTarsierNamespace = False
@@ -19,13 +19,13 @@ def Is_Tarsier_Module(Filename):
         while True:
             Line = f.readline()
             if not Line:
-                if FoundTarsierNamespace:
-                    return Lines
-                else:
-                    return []
-            Lines += [Line]
-            if TARSIER_NAMESPACE_INDICATOR in Line:
+                return Lines
+            if TARSIER_NAMESPACE_INDICATOR in Line or Full:
                 FoundTarsierNamespace = True
+            if FoundTarsierNamespace:
+                if Line[-1] == '\n':
+                    Line = Line[:-1]
+                Lines += [Line]
 
 def Find_Make_Function(Filename, Lines):
     ExpectedFunction = Filename.split('.')[0]
@@ -107,7 +107,7 @@ def ScrapTarsierFolder():
             continue
         print ""
         print " -> " + Filename
-        Lines = Is_Tarsier_Module(Filename)
+        Lines = GetTarsierCode(Filename)
         if Lines:
             StartLine = Find_Make_Function(Filename, Lines)
             if not StartLine is None:

@@ -5,20 +5,19 @@ import tarsier_scrapper
 import sepia_scrapper
 
 class FrameworkAbstraction:
-    def __init__(self, file = None, LogFunction = None):
-        self.Framework = {'modules': [], 'name': '', 'events_types': [], 'files': {'Documentation':'        ~ Generated with Beaver ~'}}
-        self.Modules = self.Framework['modules']
-        self.EventsTypes = self.Framework['events_types']
-        self.Files = self.Framework['files'] # Abstracted Files, not actual ones
-
+    def __init__(self, Data = None, LogFunction = None):
+        self.Data = {'modules': [], 'name': '', 'events_types': [], 'files': {'Documentation':'        ~ Generated with Beaver ~'}, 'user_defined': []}
         self.ModulesIDs = []
-        
         self.HasChameleon = False
         self.HasTariser = False
+        if not Data is None:
+            self._LoadData(Data)
 
-        if not file is None:
-            self._LoadFramework(file)
-
+        self.Modules = self.Data['modules']
+        self.EventsTypes = self.Data['events_types']
+        self.Files = self.Data['files'] # Abstracted Files, not actual ones
+        self.UserWrittenCode = self.Data['user_defined']
+        
         if LogFunction is None:
             self.LogFunction = sys.stdout.write
         else:
@@ -26,8 +25,15 @@ class FrameworkAbstraction:
 
         self.Writer = CodeWriterClass(LogFunction)
 
-    def _LoadFramework(self, file):
-        None
+    def _LoadData(self, Data):
+        self.Data = Data
+        self.ModulesIDs = []
+        for Module in self.Data['modules']:
+            self.ModulesIDs += [Module['id']]
+            if Module['module']['origin'] == 'tarsier':
+                self.HasTariser = True
+            elif Module['module']['origin'] == 'chameleon':
+                self.HasChameleon = True
 
     def AddModule(self, Module):
         if not self.ModulesIDs:
@@ -38,15 +44,15 @@ class FrameworkAbstraction:
         self.ModulesIDs += [NewID]
 
     def GenerateCode(self):
-        self.Writer.WriteCode(self.Framework)
+        self.Writer.WriteCode(self.Data)
 
     def GenerateBuild(self):
-        self.Writer.BuildDirectory(self.Framework['name'], force = True)
+        self.Writer.BuildDirectory(self.Data['name'], force = True)
         ChameleonModules = []
         for Module in self.Modules:
-            if Module['origin'] == 'chameleon':
+            if Module['module']['origin'] == 'chameleon':
                 ChameleonModules += [Module]
-        LuaFilename = self.Writer.CreateLUAFile(self.Framework['name'], ChameleonModules)
+        LuaFilename = self.Writer.CreateLUAFile(self.Data['name'], ChameleonModules)
         self.Files[LuaFilename] = LoadFile(LuaFilename)
         return LuaFilename
 

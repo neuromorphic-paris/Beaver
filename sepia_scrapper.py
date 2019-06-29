@@ -14,7 +14,7 @@ TEMPLATE_PARAM_TYPE = 'typename'
 SEPIA_TYPES_INDICATOR = "enum class type"
 TEMPLATE_SCRAPED_FUNCTIONS = ['make_split', 'join_observable', 'make_observable']
 
-def GetSepiaCode():
+def GetSepiaCode(Full = False):
     with open(SEPIA_SOURCE_FOLDER + 'sepia.hpp', 'r') as f:
         Lines = []
         FoundSepiaNamespace = False
@@ -23,7 +23,7 @@ def GetSepiaCode():
             Line = f.readline()
             if not Line:
                 return Lines
-            if SEPIA_NAMESPACE_INDICATOR in Line:
+            if SEPIA_NAMESPACE_INDICATOR in Line or Full:
                 FoundSepiaNamespace = True
             if FoundSepiaNamespace:
                 if Line[-1] == '\n':
