@@ -90,8 +90,8 @@ class GUI:
 
         self.AvailablesModulesPositions = [np.array([0,0])]
         self.SelectedAvailableModulePosition = 0
-        self.ModulesDiameter = 1.
-        self.ModulesTilingDistance = 2.
+        self.ModulesDiameter = 2.
+        self.ModulesTilingDistance = 4.
         self.DisplayedModulesPositions = {}
         self.ActiveModule = None
         
@@ -112,9 +112,9 @@ class GUI:
         self.ParamsFrame.grid(row = 2, column = 0, rowspan = 1, columnspan = 1, sticky=Tk.N+Tk.S+Tk.E+Tk.W)
         self.ParamsTitleFrame = Tk.Frame(self.ParamsFrame)
         self.ParamsTitleFrame.grid(row = 0, column = 0, columnspan = 2, sticky=Tk.N+Tk.S+Tk.W)
-        NameLabel = Tk.Label(self.ParamsTitleFrame, text = 'Name', width = 15, justify = 'left')
+        NameLabel = Tk.Label(self.ParamsTitleFrame, text = 'Name', width = 20, justify = 'left')
         NameLabel.grid(row = 0, column = 0, sticky = Tk.W)
-        TypeLabel = Tk.Label(self.ParamsTitleFrame, text = 'Type', width = 15, justify = 'left')
+        TypeLabel = Tk.Label(self.ParamsTitleFrame, text = 'Type', width = 20, justify = 'left')
         TypeLabel.grid(row = 0, column = 1)
         ValueLabel = Tk.Label(self.ParamsTitleFrame, text = 'Value', width = 10, justify = 'left')
         ValueLabel.grid(row = 0, column = 2, sticky = Tk.E)
@@ -145,6 +145,7 @@ class GUI:
         self.MAX_LOG_LINES = 50
         
         self.DrawFramework()
+        self.ChangeDisplayedParams(0)
 
         self.MainWindow.mainloop()
 
@@ -283,13 +284,13 @@ class GUI:
             else:
                 self.CurrentMinParamDisplayed = max(0, min(len(ModuleParameters.keys()), self.CurrentMinParamDisplayed + Mod))
             self.DisplayedParams = []
-            for NParam in range(self.CurrentMinParamDisplayed, self.CurrentMinParamDisplayed + self.NParamsDisplayed):
+            for NParam in range(self.CurrentMinParamDisplayed, min(len(ModuleParameters), self.CurrentMinParamDisplayed + self.NParamsDisplayed)):
                 self.DisplayedParams += [[]]
-                self.DisplayedParams[-1] += [Tk.Label(self.ParamsValuesFrame, text = ModuleParameters[NParam]['name'], width = 15, justify = 'left').grid(row=len(self.DisplayedParams)-1, column=0, sticky = Tk.N)]
-                self.DisplayedParams[-1] += [Tk.Label(self.ParamsValuesFrame, text = ModuleParameters[NParam]['type'], width = 15, justify = 'left').grid(row=len(self.DisplayedParams)-1, column=1, sticky = Tk.N)]
+                self.DisplayedParams[-1] += [Tk.Label(self.ParamsValuesFrame, text = ModuleParameters[NParam]['name'], width = 20, justify = 'left').grid(row=len(self.DisplayedParams)-1, column=0, sticky = Tk.N)]
+                self.DisplayedParams[-1] += [Tk.Label(self.ParamsValuesFrame, text = ModuleParameters[NParam]['type'], width = 20, justify = 'left').grid(row=len(self.DisplayedParams)-1, column=1, sticky = Tk.N)]
                 if 'default' in ModuleParameters[NParam].keys():
                     default = ModuleParameters[NParam]['default']
                 else:
                     default = ''
-                self.DisplayedParams[-1] += [Tk.Entry(self.ParamsValuesFrame, text = default, width = 60, justify = 'left', bg = 'white').grid(row=len(self.DisplayedParams)-1, column=2, sticky = Tk.N+Tk.E)]
+                self.DisplayedParams[-1] += [Tk.Entry(self.ParamsValuesFrame, text = default, width = 40, justify = 'left', bg = 'white').grid(row=len(self.DisplayedParams)-1, column=2, sticky = Tk.N+Tk.E)]
 G = GUI()
