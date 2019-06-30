@@ -46,7 +46,7 @@ class GUI:
         for TypeName, Type in SepiaTypes.items():
             self.AvailableTypes[TypeName] = Type
 
-        self.UserDefinedVariableTypes = ['Struct', 'Lambda Function']
+        self.UserDefinedVariableTypes = ['Struct', 'Packed struct', 'Lambda Function']
 
         self.MainWindow = Tk.Tk()
         self.MainWindow.title('Beaver - Untitled')
@@ -99,7 +99,7 @@ class GUI:
         self.DisplayCanvas.show()
         self.DisplayCanvas.get_tk_widget().grid(row = 0, column = 0)
 
-        self.AvailablesModulesPositions = [np.array([0,0])]
+        self.AvailablesModulesPositions = [(np.array([0,0]), None)]
         self.SelectedAvailableModulePosition = 0
         self.ModulesDiameter = 2.
         self.ModulesTilingDistance = 4.
@@ -117,15 +117,17 @@ class GUI:
 
         self.CodeFrame = Tk.Frame(self.MainWindow)
         self.CodeFrame.grid(row = 0, column = 2)
-        self.CodeCurrentFile = self.Framework.Files.keys()[0]
+        self.CurrentCodeFile = self.Framework.Files.keys()[0]
+        self.CurrentCodeType = self.Framework.Files[self.CurrentCodeFile]['type']
         self.CodeFileVar = Tk.StringVar(self.MainWindow)
-        self.CodeFileVar.set(self.CodeCurrentFile)
+        self.CodeFileVar.set(self.CurrentCodeFile)
         self.CodeFileMenu = Tk.OptionMenu(self.CodeFrame, self.CodeFileVar, *self.Framework.Files)
         self.CodeFileMenu.grid(row = 0, column = 0)
         self.CodePad = ScrolledText.ScrolledText(self.CodeFrame, width=120, height=40, bg = 'white')
+        self.CodePad.bind("<<TextModified>>", self.OnCodeModification)
         self.CodePad.grid(row = 1, column = 0)
         self.UpdateCodeMenu()
-        self.SetDisplayedCodefile(self.Framework.Files.keys()[0], SaveCurrentFile = False)
+        self.SetDisplayedCodefile(self.CurrentCodeFile, SaveCurrentFile = False)
         
         self.ParamsFrame = Tk.Frame(self.MainWindow, width = 100, bd = 4, relief='groove')
         self.ParamsFrame.grid(row = 2, column = 0, rowspan = 1, columnspan = 1, sticky=Tk.N+Tk.S+Tk.E+Tk.W)
@@ -166,6 +168,7 @@ class GUI:
         self.DrawFramework()
         self.ChangeDisplayedParams(0)
 
+        self.Log("Ready !")
         self.MainWindow.mainloop()
 
     def _on_closing(self):
@@ -182,7 +185,8 @@ class GUI:
                 return None
             self.Framework = framework_abstractor.FrameworkAbstraction(LogFunction = self.Log)
             self.Framework.Data['name'] = file.name.split('/')[-1].split('.json')[0]
-            self.SetDisplayedCodefile(self.Framework.Files.keys()[0], SaveCurrentFile = False)
+
+            self.SetDisplayedCodefile(self.CurrentCodeFile, SaveCurrentFile = False)
             self.FrameworkFileName = file.name
             self.MainWindow.title('Beaver - {0}'.format(self.Framework.Data['name']))
 
@@ -229,7 +233,7 @@ class GUI:
                 self.CurrentParams = []
                 self.DisplayedParams = []
                 self.CurrentMinParamDisplayed = 0
-                self.AvailablesModulesPositions = [np.array([0,0])]
+                self.AvailablesModulesPositionsAndParents = [(np.array([0,0]), None)]
                 self.SelectedAvailableModulePosition = 0
                 self.DisplayedModulesPositions = {}
 
@@ -245,20 +249,20 @@ class GUI:
         self.DrawFramework()
 
     def RegisterCurrentCodePad(self):
-        if self.CodeCurrentFile in self.TempFiles.keys():
+        if self.CurrentCodeFile in self.TempFiles.keys():
             return None
         CurrentText = self.CodePad.get('1.0', Tk.END+'-1c')
-        self.Framework.Files[self.CodeCurrentFile] = CurrentText
+        self.Framework.Files[self.CurrentCodeFile]['data'] = CurrentText
 
     def AddModule(self, ModuleName):
         self.Log("Adding " + ModuleName)
-        self.Framework.AddModule(self.AvailableModules[ModuleName])
+        self.Framework.AddModule(self.AvailableModules[ModuleName], self.AvailablesModulesPositions[self.SelectedAvailableModulePosition][1])
         self.AddModuleDisplay(self.Framework.Modules[-1], AutoDraw = True)
 
     def AddModuleDisplay(self, Module, AutoDraw):
-        self.DisplayedModulesPositions[Module['id']] = self.AvailablesModulesPositions[self.SelectedAvailableModulePosition]
+        self.DisplayedModulesPositions[Module['id']] = self.AvailablesModulesPositions[self.SelectedAvailableModulePosition][0]
         self.AvailablesModulesPositions.pop(self.SelectedAvailableModulePosition)
-        self.AddAvailableSlots(self.DisplayedModulesPositions[Module['id']], Module['module'])
+        self.AddAvailableSlots(self.DisplayedModulesPositions[Module['id']], Module['module'], Module['id'])
         if AutoDraw:
             self.ActiveModule = len(self.Framework.Modules)-1
             self.DrawFramework()
@@ -267,11 +271,12 @@ class GUI:
     def AddNewType(self, Type):
         TmpName = Type
         if TmpName in self.Framework.UserWrittenCode:
-            self.Log("Already underdefined type {0} in this project. Fill in name first before defining a new one.")
+            self.Log("Already underdefined type {0} in this project. Fill in a name first before defining a new one.".format(Type))
             self.SetDisplayedCodefile(TmpName)
             return None
         self.Framework.UserWrittenCode += [TmpName]
-        self.Framework.Files[TmpName] = GenerateNewType(Type)
+        self.Framework.Files[TmpName] = {'data': GenerateNewType(Type), 'type': Type}
+
         self.UpdateCodeMenu()
         self.SetDisplayedCodefile(TmpName)
 
@@ -330,14 +335,20 @@ class GUI:
         if SaveCurrentFile:
             self.RegisterCurrentCodePad()
         self.CodePad.delete('1.0', Tk.END)
-        self.CodeCurrentFile = Codefile
-        self.CodeFileVar.set(self.CodeCurrentFile)
-        if self.CodeCurrentFile in self.Framework.Files.keys():
-            self.CodePad.insert(Tk.END, self.Framework.Files[self.CodeCurrentFile])
+        self.CurrentCodeFile = Codefile
+        self.CodeFileVar.set(self.CurrentCodeFile)
+        if self.CurrentCodeFile in self.Framework.Files.keys():
+            self.CodePad.insert(Tk.END, self.Framework.Files[self.CurrentCodeFile]['data'])
+            self.CurrentCodeType = self.Framework.Files[self.CurrentCodeFile]['type']
         else:
-            self.CodePad.insert(Tk.END, self.TempFiles[self.CodeCurrentFile])
+            self.CodePad.insert(Tk.END, self.TempFiles[self.CurrentCodeFile])
+            self.CurrentCodeType = 'tmp' 
+
+    def OnCodeModification(self):
+        None
 
     def Log(self, string):
+        self.ConsolePad.config(state=Tk.NORMAL)
         if string[-1] != '\n':
             string = string+'\n'
         self.ConsolePad.insert(Tk.END, string)
@@ -347,6 +358,7 @@ class GUI:
             self.ConsolePad.delete('1.0', Tk.END)
             self.ConsolePad.insert(Tk.END, CurrentText)
         self.ConsolePad.see('end')
+        self.ConsolePad.config(state=Tk.DISABLED)
 
     def DrawFramework(self):
         #self.Log("Drawing...")
@@ -362,14 +374,14 @@ class GUI:
             self.DrawModule(self.DisplayedModulesPositions[Module['id']], Module['module']['name'], color)
             minValues = np.minimum(minValues, self.DisplayedModulesPositions[Module['id']] - self.ModulesDiameter)
             maxValues = np.maximum(maxValues, self.DisplayedModulesPositions[Module['id']] + self.ModulesDiameter)
-        for nSlot, AvailableSlot in enumerate(self.AvailablesModulesPositions):
+        for nSlot, AvailableSlotAndParent in enumerate(self.AvailablesModulesPositions):
             if nSlot == self.SelectedAvailableModulePosition:
                 alpha = 0.7
             else:
                 alpha = 0.3
-            self.DrawModule(AvailableSlot, '', 'grey', alpha)
-            minValues = np.minimum(minValues, AvailableSlot - self.ModulesDiameter)
-            maxValues = np.maximum(maxValues, AvailableSlot + self.ModulesDiameter)
+            self.DrawModule(AvailableSlotAndParent[0], '', 'grey', alpha)
+            minValues = np.minimum(minValues, AvailableSlotAndParent[0] - self.ModulesDiameter)
+            maxValues = np.maximum(maxValues, AvailableSlotAndParent[0] + self.ModulesDiameter)
         Center = (minValues + maxValues)/2.
         MaxAxis = (maxValues - minValues).max()
         minValues = Center - MaxAxis/2.
@@ -386,12 +398,15 @@ class GUI:
         TextPosition = ModulePosition + self.ModulesDiameter/2 * 0.8 * np.array([-1, -1])
         self.DisplayAx.text(TextPosition[0], TextPosition[1], s = ModuleName, color = color, alpha = alpha, fontsize = 8)
     
-    def AddAvailableSlots(self, LastAddedPosition, AddedModule):
-        PossibleAdds = [self.ModulesTilingDistance * np.array([-1., 0.]), self.ModulesTilingDistance * np.array([1., 0.]), self.ModulesTilingDistance * np.array([0., -1.])]
-        for PossibleAdd in PossibleAdds:
-            if (abs(np.array(self.DisplayedModulesPositions.values()) - (LastAddedPosition + PossibleAdd)) < self.ModulesDiameter).all(axis = 1).any(axis = 0):
+    def AddAvailableSlots(self, LastAddedPosition, AddedModule, ParentModuleID):
+        NOutputs = framework_abstractor.CountEventsHandlers(AddedModule)
+        if AddedModule['name'] != 'merge':
+            NInputs = 3
+        PossibleChildrenAdds = [(self.ModulesTilingDistance * np.array([dX, -1.])) for dX in (np.array(list(range(NOutputs))) - NOutputs/2. + 0.5).tolist()]
+        for PossibleAdd in PossibleChildrenAdds:
+            if self.DisplayedModulesPositions.values() and (abs(np.array(self.DisplayedModulesPositions.values()) - (LastAddedPosition + PossibleAdd)) < self.ModulesDiameter).all(axis = 1).any(axis = 0):
                 continue
-            self.AvailablesModulesPositions += [LastAddedPosition + PossibleAdd]
+            self.AvailablesModulesPositions += [(LastAddedPosition + PossibleAdd, ParentModuleID)]
     
     def _OnParameterChange(self, StringVar):
         ParamIndex = self.CurrentParams.index(StringVar)
@@ -441,6 +456,8 @@ class GUI:
 def GenerateNewType(Type):
     if Type == 'Struct':
         File = 'struct {\n};'
+    elif Type == 'Packed struct':
+        File = 'SEPIA_PACK(struct {\n});'
     elif Type == 'Lambda Function':
         File = '[&]() {\n}'
     return File

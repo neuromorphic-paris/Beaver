@@ -7,7 +7,7 @@ import sepia_scrapper
 
 class FrameworkAbstraction:
     def __init__(self, Data = None, LogFunction = None):
-        self.Data = {'modules': [], 'name': '', 'events_types': [], 'files': {'Documentation':'~ Generated with Beaver ~'}, 'user_defined': []}
+        self.Data = {'modules': [], 'name': '', 'events_types': [], 'files': {'Documentation':{'data': '~ Generated with Beaver ~', 'type': 'documentation'}}, 'user_defined': []}
         self.ModulesIDs = []
         self.HasChameleon = False
         self.HasTariser = False
@@ -36,12 +36,12 @@ class FrameworkAbstraction:
             elif Module['module']['origin'] == 'chameleon':
                 self.HasChameleon = True
 
-    def AddModule(self, Module):
+    def AddModule(self, Module, ParentID):
         if not self.ModulesIDs:
             NewID = 0
         else:
             NewID = max(self.ModulesIDs) + 1
-        self.Modules += [{'module': Module, 'id': NewID, 'parameters': [param['default'] for param in Module['parameters']]}]
+        self.Modules += [{'module': Module, 'id': NewID, 'parameters': [param['default'] for param in Module['parameters']], 'parent_id': ParentID}]
         self.ModulesIDs += [NewID]
 
     def GenerateCode(self):
@@ -54,7 +54,7 @@ class FrameworkAbstraction:
             if Module['module']['origin'] == 'chameleon':
                 ChameleonModules += [Module]
         LuaFilename = self.Writer.CreateLUAFile(self.Data['name'], ChameleonModules)
-        self.Files[LuaFilename] = LoadFile(LuaFilename)
+        self.Files[LuaFilename] = {'data':LoadFile(LuaFilename), 'type': 'build'}
         return LuaFilename
 
     def WellDefinedModule(self, Module):
@@ -66,6 +66,13 @@ class FrameworkAbstraction:
             return True
         else:
             return False
+
+def CountEventsHandlers(Module):
+    nOutputs = 0
+    for Template in Module['templates']:
+        if Template['type'] == 'typename' and re.compile('Handle[a-zA-Z]*').match(Template['name']):
+            nOutputs += 1
+    return nOutputs
 
 def LoadFile(Filename):
     with open(Filename, 'r') as f:
@@ -165,7 +172,29 @@ class CodeWriterClass:
         with open(ProjectDir + self.SOURCE_DIRECTORY + ProjectName + '.cpp', 'w') as CppFile:
             _AddIncludeModule(CppFile, 'sepia/', 'sepia.hpp')
 
-CHECKED_TYPES = {int: ['int', 'uint\d*_t', 'std::size_t'], float:['double', 'float']}
+def _Check_Type_Int(Value):
+    if '<<' in Value:
+        Value = _ByteshiftToInt(Value)
+        if Value is None:
+            return False
+    try:
+        a = int(Value)
+    except:
+        return False
+    if int(Value) != float(Value):
+        return False
+    return True
+
+def _Check_Type_Float(Value):
+    if '<<' in Value:
+        return False
+    try:
+        a = float(Value)
+    except:
+        return False
+    return True
+
+CHECKED_TYPES = {_Check_Type_Int: ['int', 'uint\d*_t', 'std::size_t'], _Check_Type_Float:['double', 'float']}
 
 def CheckParameterValidity(TypeGiven, Entry): # Return (bool, bool), for (Found parameter and can check it, Given value matches requirements)
     if not Entry:
@@ -173,9 +202,14 @@ def CheckParameterValidity(TypeGiven, Entry): # Return (bool, bool), for (Found 
     for PythonType, PossibleValues in CHECKED_TYPES.items():
         for PossibleValue in PossibleValues:
             if re.compile(PossibleValue).match(TypeGiven):
-                try:
-                    PythonType(Entry)
+                if PythonType(Entry):
                     return True, True
-                except:
+                else:
                     return True, False
     return False, False
+
+def _ByteshiftToInt(Value):
+    try:
+        return int(Value.split('<<')[0].strip()) << int(Value.split('<<')[1].strip())
+    except:
+        return None
