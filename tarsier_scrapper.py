@@ -65,7 +65,7 @@ def ExtractArguments(Lines, StartLine):
             print "Unexpected parameters definition : "
             print Outs
             return []
-        Parameters += [{'name': Outs[1], 'type': Outs[0], 'param_number': nParameter}]
+        Parameters += [{'name': Outs[1], 'type': Outs[0], 'param_number': nParameter, 'default': ''}]
         nParameter += 1
     return Parameters
 

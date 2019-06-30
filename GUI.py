@@ -23,8 +23,10 @@ import sepia_scrapper
 import framework_abstractor
 
 PROJECTS_DIR = 'Projects/'
+
 def about_command():
     label = tkMessageBox.showinfo("About", "Tarsier code geneerator\nWork In Progress, be kind\nPlease visit https://github.com/neuromorphic-paris/")
+
         
 class GUI:
     def __init__(self):
@@ -120,9 +122,10 @@ class GUI:
         self.CodeFileVar.set(self.CodeCurrentFile)
         self.CodeFileMenu = Tk.OptionMenu(self.CodeFrame, self.CodeFileVar, *self.Framework.Files)
         self.CodeFileMenu.grid(row = 0, column = 0)
-        self.CodePad = ScrolledText.ScrolledText(self.CodeFrame, width=100, height=40, bg = 'white')
+        self.CodePad = ScrolledText.ScrolledText(self.CodeFrame, width=120, height=40, bg = 'white')
         self.CodePad.grid(row = 1, column = 0)
         self.UpdateCodeMenu()
+        self.SetDisplayedCodefile(self.Framework.Files.keys()[0], SaveCurrentFile = False)
         
         self.ParamsFrame = Tk.Frame(self.MainWindow, width = 100, bd = 4, relief='groove')
         self.ParamsFrame.grid(row = 2, column = 0, rowspan = 1, columnspan = 1, sticky=Tk.N+Tk.S+Tk.E+Tk.W)
@@ -156,7 +159,7 @@ class GUI:
         self.CompileButton = Tk.Button(self.CompilationFrame, text = 'Compile', command = self.GenerateBinary, font = tkFont.Font(size = 15))
         self.CompileButton.grid(row = 0, column = 1)
 
-        self.ConsolePad = ScrolledText.ScrolledText(self.MainWindow, width=100, height=10, bg = 'black', fg = 'white')
+        self.ConsolePad = ScrolledText.ScrolledText(self.MainWindow, width=120, height=10, bg = 'black', fg = 'white')
         self.ConsolePad.grid(row = 2, column = 2, sticky=Tk.N+Tk.S)
         self.MAX_LOG_LINES = 50
         
@@ -279,6 +282,10 @@ class GUI:
         self.Framework.GenerateCode()
 
     def GenerateBuild(self):
+        if not self.FrameworkFileName:
+            self.saveas_command()
+            if not self.FrameworkFileName:
+                return None
         LuaFilename = self.Framework.GenerateBuild()
         self.UpdateCodeMenu()
         self.SetDisplayedCodefile(LuaFilename)
@@ -291,6 +298,26 @@ class GUI:
             Module = self.Framework.Modules[self.ActiveModule]
             if Module['module']['origin'] == 'tarsier':
                 self.TempFiles[Module['module']['name'] + '.hpp'] = '\n'.join(tarsier_scrapper.GetTarsierCode(Module['module']['name'] + '.hpp', Full = True))
+            elif Module['module']['origin'] == 'sepia':
+                SepiaCode = sepia_scrapper.GetSepiaCode(Full = True)
+                ModuleStartLine = sepia_scrapper.FindTemplateFunctions(SepiaCode, Module['module']['name'])
+                while sepia_scrapper.TEMPLATE_LINE_INDICATOR not in SepiaCode[ModuleStartLine] and ModuleStartLine > 0:
+                    ModuleStartLine -= 1
+                if ModuleStartLine > 0 and sepia_scrapper.COMMENT_INDICATOR in SepiaCode[ModuleStartLine-1]:
+                    ModuleStartLine -= 1
+                Lines = ["Starting at line {0}".format(ModuleStartLine + 1), ""]
+                nOpen = 0
+                nClose = 0
+                while nOpen == 0 or nOpen > nClose:
+                    CurrentLine = SepiaCode[ModuleStartLine]
+                    Lines += [CurrentLine]
+                    CurrentLine = CurrentLine.split(sepia_scrapper.COMMENT_INDICATOR)[-1]
+                    nOpen += CurrentLine.count('{')
+                    nClose += CurrentLine.count('}')
+                    ModuleStartLine += 1
+                self.TempFiles[Module['module']['name'] + '.hpp'] = '\n'.join(Lines)
+            else:
+                return None
             self.SetDisplayedCodefile(Module['module']['name'] + '.hpp')
 
     def UpdateCodeMenu(self):
@@ -366,6 +393,11 @@ class GUI:
                 continue
             self.AvailablesModulesPositions += [LastAddedPosition + PossibleAdd]
     
+    def _OnParameterChange(self, StringVar):
+        ParamIndex = self.CurrentParams.index(StringVar)
+        self.Framework.Modules[self.ActiveModule]['parameters'][ParamIndex] = StringVar.get()
+        self.DisplayedParams[ParamIndex][1]['foreground'] = self.GetParamDisplayColor(ParamIndex)
+
     def ChangeDisplayedParams(self, Mod):
         for Trio in self.DisplayedParams:
             for Field in Trio:
@@ -375,17 +407,36 @@ class GUI:
             if Mod == 0:
                 self.CurrentMinParamDisplayed = 0
             else:
-                self.CurrentMinParamDisplayed = max(0, min(len(ModuleParameters.keys()), self.CurrentMinParamDisplayed + Mod))
+                self.CurrentMinParamDisplayed = max(0, min(len(ModuleParameters) - self.NParamsDisplayed, self.CurrentMinParamDisplayed + Mod))
             self.DisplayedParams = []
             self.CurrentParams = []
             for NParam in range(self.CurrentMinParamDisplayed, min(len(ModuleParameters), self.CurrentMinParamDisplayed + self.NParamsDisplayed)):
                 self.DisplayedParams += [[]]
-                self.DisplayedParams[-1] += [Tk.Label(self.ParamsValuesFrame, text = ModuleParameters[NParam]['name'], width = 20, justify = 'left').grid(row=len(self.DisplayedParams)-1, column=0, sticky = Tk.N)]
-                self.DisplayedParams[-1] += [Tk.Label(self.ParamsValuesFrame, text = ModuleParameters[NParam]['type'], width = 20, justify = 'left').grid(row=len(self.DisplayedParams)-1, column=1, sticky = Tk.N)]
+                self.DisplayedParams[-1] += [Tk.Label(self.ParamsValuesFrame, text = ModuleParameters[NParam]['name'], width = 20, anchor = Tk.W)]
+                self.DisplayedParams[-1][-1].grid(row=len(self.DisplayedParams)-1, column=0, sticky = Tk.N)
+
+                Color = self.GetParamDisplayColor(NParam)
+                self.DisplayedParams[-1] += [Tk.Label(self.ParamsValuesFrame, text = ModuleParameters[NParam]['type'], width = 20, anchor = Tk.W, foreground = Color)]
+                self.DisplayedParams[-1][-1].grid(row=len(self.DisplayedParams)-1, column=1, sticky = Tk.N)
+
                 self.CurrentParams += [Tk.StringVar(self.MainWindow)]
-                self.DisplayedParams[-1] += [Tk.Entry(self.ParamsValuesFrame, textvariable = self.CurrentParams[-1], width = 40, justify = 'left', bg = 'white').grid(row=len(self.DisplayedParams)-1, column=2, sticky = Tk.N+Tk.E)]
+                self.CurrentParams[-1].trace("w", lambda name, index, mode, sv=self.CurrentParams[-1]: self._OnParameterChange(sv))
+                self.DisplayedParams[-1] += [Tk.Entry(self.ParamsValuesFrame, textvariable = self.CurrentParams[-1], width = 40, bg = 'white')]
+                self.DisplayedParams[-1][-1].grid(row=len(self.DisplayedParams)-1, column=2, sticky = Tk.N+Tk.E)
                 if 'default' in ModuleParameters[NParam].keys():
                     self.CurrentParams[-1].set(ModuleParameters[NParam]['default'])
+
+    def GetParamDisplayColor(self, NParam):
+        ModuleParameters = self.Framework.Modules[self.ActiveModule]['module']['parameters']
+        TypeCanBeenChecked, ValueWasChecked = framework_abstractor.CheckParameterValidity(ModuleParameters[NParam]['type'], self.Framework.Modules[self.ActiveModule]['parameters'][NParam])
+        if not TypeCanBeenChecked:
+            Color = 'black'
+        else:
+            if ValueWasChecked:
+                Color = 'green'
+            else:
+                Color = 'red'
+        return Color
 
 def GenerateNewType(Type):
     if Type == 'Struct':

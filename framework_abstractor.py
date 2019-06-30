@@ -1,12 +1,13 @@
 import os
 import sys
+import re
 
 import tarsier_scrapper
 import sepia_scrapper
 
 class FrameworkAbstraction:
     def __init__(self, Data = None, LogFunction = None):
-        self.Data = {'modules': [], 'name': '', 'events_types': [], 'files': {'Documentation':'        ~ Generated with Beaver ~'}, 'user_defined': []}
+        self.Data = {'modules': [], 'name': '', 'events_types': [], 'files': {'Documentation':'~ Generated with Beaver ~'}, 'user_defined': []}
         self.ModulesIDs = []
         self.HasChameleon = False
         self.HasTariser = False
@@ -40,7 +41,7 @@ class FrameworkAbstraction:
             NewID = 0
         else:
             NewID = max(self.ModulesIDs) + 1
-        self.Modules += [{'module': Module, 'id': NewID, 'parameters': []}]
+        self.Modules += [{'module': Module, 'id': NewID, 'parameters': [param['default'] for param in Module['parameters']]}]
         self.ModulesIDs += [NewID]
 
     def GenerateCode(self):
@@ -58,6 +59,10 @@ class FrameworkAbstraction:
 
     def WellDefinedModule(self, Module):
         if len(Module['parameters']) == len(Module['module']['parameters']):
+            for nModule, ParameterAsked in enumerate(Module['module']['parameters']):
+                CanBeChecked, WasChecked = CheckParameterValidity(ParameterAsked['type'], Module['parameters'][nModule])
+                if CanBeChecked and not WasChecked:
+                    return False
             return True
         else:
             return False
@@ -153,9 +158,24 @@ class CodeWriterClass:
     
     def _AddIncludeModule(self, File, ModuleOrigin, ModuleFile):
         File.write("#include \"../" + self.THIRD_PARTY_DIRECTORY + ModuleOrigin + "source/" + ModuleFile + "\"\n")
-    
+
     def WriteCode(self, Framework):
         ProjectName = Framework['name']
         ProjectDir = self._GetProjectDir(ProjectName)
         with open(ProjectDir + self.SOURCE_DIRECTORY + ProjectName + '.cpp', 'w') as CppFile:
             _AddIncludeModule(CppFile, 'sepia/', 'sepia.hpp')
+
+CHECKED_TYPES = {int: ['int', 'uint\d*_t', 'std::size_t'], float:['double', 'float']}
+
+def CheckParameterValidity(TypeGiven, Entry): # Return (bool, bool), for (Found parameter and can check it, Given value matches requirements)
+    if not Entry:
+        return True, False
+    for PythonType, PossibleValues in CHECKED_TYPES.items():
+        for PossibleValue in PossibleValues:
+            if re.compile(PossibleValue).match(TypeGiven):
+                try:
+                    PythonType(Entry)
+                    return True, True
+                except:
+                    return True, False
+    return False, False

@@ -75,7 +75,7 @@ def ExtractArguments(Lines, StartLine):
         Outs = [RawOut for RawOut in RawOuts if RawOut]
 
         if len(Outs) == 2:
-            Parameters += [{'name': Outs[1], 'type': Outs[0], 'param_number': nParameter}]
+            Parameters += [{'name': Outs[1], 'type': Outs[0], 'param_number': nParameter, 'default': ''}]
             nParameter += 1
         elif len(Outs) != 2 and Outs.count("=") == 1:
             RawParameter, DefaultParameter = RawParameter.split('=')
