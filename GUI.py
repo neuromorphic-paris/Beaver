@@ -409,7 +409,7 @@ class GUI:
                 Style = '-'
             else:
                 Style = '--'
-            self.DrawModule(self.DisplayedModulesPositions[Module['id']], Module['name'], Style, Color)
+            self.DrawModule(Module, Style, Color)
             minValues = np.minimum(minValues, self.DisplayedModulesPositions[Module['id']] - self.ModulesDiameter)
             maxValues = np.maximum(maxValues, self.DisplayedModulesPositions[Module['id']] + self.ModulesDiameter)
 
@@ -421,10 +421,12 @@ class GUI:
 
         for nSlot, AvailableSlotAndParent in enumerate(self.AvailablesModulesPositions):
             if nSlot == self.SelectedAvailableModulePosition:
-                alpha = 0.7
+                Style = '-'
+                alpha = 1.
             else:
-                alpha = 0.3
-            self.DrawModule(AvailableSlotAndParent[0], '', '-', 'grey', alpha)
+                Style = '--'
+                alpha = 0.4
+            self.DrawModule({'nSlot':nSlot, 'id': None}, Style, 'grey', alpha)
             minValues = np.minimum(minValues, AvailableSlotAndParent[0] - self.ModulesDiameter)
             maxValues = np.maximum(maxValues, AvailableSlotAndParent[0] + self.ModulesDiameter)
         Center = (minValues + maxValues)/2.
@@ -436,12 +438,24 @@ class GUI:
         self.Display.canvas.show()
         #self.Log("Done.")
         
-    def DrawModule(self, ModulePosition, ModuleName, Style, Color, alpha = 1):
+    def DrawModule(self, Module, Style, Color, alpha = 1.):
+        if 'nSlot' in Module.keys():
+            ModulePosition = self.AvailablesModulesPositions[Module['nSlot']][0]
+            ModuleName = ''
+            ModuleEvFields = []
+        else:
+            ModulePosition = self.DisplayedModulesPositions[Module['id']]
+            ModuleName = Module['name']
+            ModuleEvFields = Module['module']['ev_fields']
+
         DXs = (self.ModulesDiameter/2 * np.array([np.array([-1, -1]), np.array([-1, 1]), np.array([1, 1]), np.array([1, -1])])).tolist()
         for nDX in range(len(DXs)):
             self.DisplayAx.plot([(ModulePosition + DXs[nDX])[0], (ModulePosition + DXs[(nDX+1)%4])[0]], [(ModulePosition + DXs[nDX])[1], (ModulePosition + DXs[(nDX+1)%4])[1]], ls = Style, color = Color, alpha = alpha)
-        TextPosition = ModulePosition + self.ModulesDiameter/2 * 0.8 * np.array([-1, -1])
-        self.DisplayAx.text(TextPosition[0], TextPosition[1], s = ModuleName, color = Color, alpha = alpha, fontsize = 8)
+        NameTextPosition = ModulePosition + self.ModulesDiameter/2 * 0.8 * np.array([-1, -1])
+        self.DisplayAx.text(NameTextPosition[0], NameTextPosition[1], s = ModuleName, color = Color, alpha = alpha, fontsize = 8)
+        FieldsTextPosition = ModulePosition + self.ModulesDiameter/2 * 1.2 * np.array([1., 0])
+        if not self.ActiveModule is None and Module['id'] == self.ActiveModule['id'] and (ModuleEvFields):
+            self.DisplayAx.text(FieldsTextPosition[0], FieldsTextPosition[1], s = 'Input fields : \n' + ', '.join(ModuleEvFields), bbox={'facecolor': Color, 'alpha': 0.5, 'pad': 5})
     
     def DrawLinksToChildrens(self, Module, Style, Color):
         HandlersParamsIndexes = framework_abstractor.FindModuleHandlers(Module['module'])

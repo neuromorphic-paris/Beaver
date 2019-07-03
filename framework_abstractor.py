@@ -68,6 +68,11 @@ class FrameworkAbstraction:
                 return False
         return True
 
+    def GetModuleByID(self, ID):
+        for Module in self.Modules:
+            if Module['id'] == ID:
+                return Module
+
 def FindModuleHandlers(Module):
     Indexes = []
     for nParam, Param in enumerate(Module['parameters']):
@@ -79,7 +84,8 @@ def CountEventsHandlers(Module):
     nOutputs = 0
     for Template in Module['templates']:
         if Template['type'] == 'typename' and re.compile('Handle[a-zA-Z]*').match(Template['name']):
-            nOutputs += 1
+            if 'exception' not in Template['name'].lower():
+                nOutputs += 1
     return nOutputs
 
 def LoadFile(Filename):

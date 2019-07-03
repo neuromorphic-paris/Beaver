@@ -10,6 +10,10 @@ MAKE_FUNCTION_INDICATOR = 'make_'
 
 TEMPLATE_LINE_INDICATOR = 'template'
 TEMPLATE_PARAM_TYPE = 'typename'
+CLASS_INDICATOR = 'class '
+
+VARIABLE_CHARS = 'abcdefghijklmnopqrstuvwxyz_'
+EVENT_OPERATOR_INDICATOR = 'operator()'
 
 def GetTarsierCode(Filename, Full = False):
     with open(TARSIER_SOURCE_FOLDER + Filename, 'r') as f:
@@ -46,6 +50,29 @@ def Find_Make_Function(Filename, Lines):
     if not FoundMakeFunction:
         print "Unable to find correct {0} function.".format(MAKE_FUNCTION_INDICATOR)
         return None
+
+# We  assume here that only one tarsier class and module exist per file> Otherwise, use following lines as done with sepia
+#def FindAssociatedClass(Filename, Lines):
+#    ExpectedFunction = Filename.split('.')[0]
+#    for nLine, Line in enumerate(Lines):
+#        if CLASS_INDICATOR in Line and (not COMMENT_INDICATOR in Line or Line.index(COMMENT_INDICATOR) > Line.index(CLASS_INDICATOR)):
+#            StudiedPart = Line.split(CLASS_INDICATOR)[0]
+#            for nChar, Char in StudiedPart:
+#                if Char not in VARIABLE_CHARS:
+#                    if StudiedPart[:nChar] == ExpectedFunction:
+#                        return nLine
+#
+#def ExtractClassLines(Lines, ClassStartLine):
+#    nOpen = 0
+#    nClose = 0
+#    EndLine = ClassStartLine
+#    while nOpen == 0 or nOpen > nClose:
+#        Line = Lines[EndLine]
+#        StudiedPart = Line.split(COMMENT_INDICATOR)[-1]
+#        nOpen += StudiedPart.count('{')
+#        nClose += StudiedPart.count('}')
+#        EndLine += 1
+#    return Lines[ClassStartLine:EndLine]
 
 def ExtractArguments(Lines, StartLine):
     Parameters = []
@@ -98,6 +125,61 @@ def ExtractTemplates(Lines, FuncStartLine):
         nTemplate += 1
     return Templates
 
+def ExtractEventRequiredFields(Lines, FuncName):
+    StartLine = None
+    for nLine, Line in enumerate(Lines):
+        if EVENT_OPERATOR_INDICATOR in Line and (not COMMENT_INDICATOR in Line or Line.index(COMMENT_INDICATOR) > Line.index(EVENT_OPERATOR_INDICATOR)):
+            StartLine = nLine
+            print "Found oprator at line {0}".format(StartLine)
+            break
+    if StartLine is None:
+        print "Unable to find operator() for function {0}".format(FuncName)
+        return []
+    EndLine = StartLine
+    StudiedPart = Line.split(EVENT_OPERATOR_INDICATOR)[1]
+    while StudiedPart.count(')') == 0:
+        EndLine += 1
+        StudiedPart = StudiedPart + ' ' + Lines[EndLine].split(COMMENT_INDICATOR)[-1]
+    UsefulPart = StudiedPart.split(')')[0].split('(')[1]
+    TypeName = ''
+    VarName = ''
+    for Part in UsefulPart.split(' '):
+        if Part:
+            if not TypeName:
+                TypeName = Part
+            else:
+                VarName = Part
+                break
+    if not VarName:
+        print "Unable to parse event variable name in operator of function {0}".format(FuncName)
+        return []
+    StartLine = EndLine
+    StudiedPart = Lines[StartLine].split('{')[-1]
+
+    RequiredFields = []
+    
+    nOpen = 1
+    nClose = 0
+    EndLine = StartLine + 1
+    while nOpen > nClose:
+        Line = Lines[EndLine]
+        StudiedPart = Line.split(COMMENT_INDICATOR)[-1]
+        nOpen += StudiedPart.count('{')
+        nClose += StudiedPart.count('}')
+        EndLine += 1
+        if VarName + '.' in StudiedPart:
+            for AppearingField in StudiedPart.split(VarName + '.')[1:]:
+                for nChar, Char in enumerate(AppearingField):
+                    if Char not in VARIABLE_CHARS:
+                        break
+                FinalField = AppearingField[:nChar]
+                if FinalField not in RequiredFields:
+                    RequiredFields += [FinalField]
+        if not Line:
+            print "Unable to end properly the operator() function definition for {0}".format(FuncName)
+            return RequiredFields
+    return RequiredFields
+
 def ScrapTarsierFolder():
     Filenames = os.listdir(TARSIER_SOURCE_FOLDER)
     Modules = {}
@@ -116,6 +198,7 @@ def ScrapTarsierFolder():
                 Modules[ModuleName]['templates'] = ExtractTemplates(Lines, StartLine)
                 Modules[ModuleName]['origin'] = 'tarsier'
                 Modules[ModuleName]['name'] = ModuleName
+                Modules[ModuleName]['ev_fields'] = ExtractEventRequiredFields(Lines, ModuleName)
     return Modules
 
 if __name__ == '__main__':
@@ -123,7 +206,7 @@ if __name__ == '__main__':
 
     if len(args) > 1 and args[1][0] != '-':
         Filename = args[1]
-        Lines = Is_Tarsier_Module(Filename)
+        Lines = GetTarsierCode(Filename)
         if Lines:
             Find_Make_Function(Filename, Lines)
     else:
