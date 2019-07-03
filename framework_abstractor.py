@@ -36,12 +36,14 @@ class FrameworkAbstraction:
             elif Module['module']['origin'] == 'chameleon':
                 self.HasChameleon = True
 
-    def AddModule(self, Module, ParentID):
+    def AddModule(self, Module, ParentID, AskedModuleName = None):
         if not self.ModulesIDs:
             NewID = 0
         else:
             NewID = max(self.ModulesIDs) + 1
-        self.Modules += [{'module': Module, 'id': NewID, 'parameters': [param['default'] for param in Module['parameters']], 'parent_id': ParentID}]
+        self.Modules += [{'module': Module, 'id': NewID, 'parameters': [param['default'] for param in Module['parameters']], 'parent_ids': [ParentID], 'name': Module['name']}]
+        if not AskedModuleName is None:
+            self.Modules[-1]['name'] = AskedModuleName
         self.ModulesIDs += [NewID]
 
     def GenerateCode(self):
@@ -58,14 +60,20 @@ class FrameworkAbstraction:
         return LuaFilename
 
     def WellDefinedModule(self, Module):
-        if len(Module['parameters']) == len(Module['module']['parameters']):
-            for nModule, ParameterAsked in enumerate(Module['module']['parameters']):
-                CanBeChecked, WasChecked = CheckParameterValidity(ParameterAsked['type'], Module['parameters'][nModule])
-                if CanBeChecked and not WasChecked:
-                    return False
-            return True
-        else:
-            return False
+        for nModule, ParameterAsked in enumerate(Module['module']['parameters']):
+            if Module['parameters'][nModule] == '':
+                return False
+            CanBeChecked, WasChecked = CheckParameterValidity(ParameterAsked['type'], Module['parameters'][nModule])
+            if CanBeChecked and not WasChecked:
+                return False
+        return True
+
+def FindModuleHandlers(Module):
+    Indexes = []
+    for nParam, Param in enumerate(Module['parameters']):
+        if re.compile('Handle[a-zA-Z]*').match(Param['type']):
+            Indexes += [nParam]
+    return Indexes
 
 def CountEventsHandlers(Module):
     nOutputs = 0

@@ -96,6 +96,7 @@ class GUI:
         self.Display.tight_layout()
         
         self.DisplayCanvas = FigureCanvasTkAgg(self.Display, self.MainWindow)
+        cid = self.DisplayCanvas.mpl_connect('button_press_event', self._OnDisplayClick)
         self.DisplayCanvas.show()
         self.DisplayCanvas.get_tk_widget().grid(row = 0, column = 0)
 
@@ -176,6 +177,21 @@ class GUI:
             self.MainWindow.quit()
             self.MainWindow.destroy()
 
+    def _OnDisplayClick(self, event):
+        Click = np.array([event.xdata, event.ydata])
+        for Module in self.Framework.Modules:
+            if (abs(self.DisplayedModulesPositions[Module['id']] - Click) < self.ModulesDiameter/2.).all():
+                self.ActiveModule = Module
+		self.DrawFramework()
+                self.ChangeDisplayedParams(0)
+                break
+        for nPosition, PositionAndParent in enumerate(self.AvailablesModulesPositions):
+            if (abs(PositionAndParent[0] - Click) < self.ModulesDiameter/2.).all():
+                self.SelectedAvailableModulePosition = nPosition
+		self.DrawFramework()
+                self.ChangeDisplayedParams(0)
+                break
+
     def GenerateEmptyFramework(self):
         if self.Framework.Modules:
             if not tkMessageBox.askokcancel("New", "Unsaved framework. Erase anyway ?"):
@@ -233,14 +249,15 @@ class GUI:
                 self.CurrentParams = []
                 self.DisplayedParams = []
                 self.CurrentMinParamDisplayed = 0
-                self.AvailablesModulesPositionsAndParents = [(np.array([0,0]), None)]
+                self.AvailablesModulesPositions = [(np.array([0,0]), None)]
                 self.SelectedAvailableModulePosition = 0
                 self.DisplayedModulesPositions = {}
 
                 self.UpdateCodeMenu()
                 for Module in self.Framework.Modules:
                     self.AddModuleDisplay(Module, AutoDraw = False)
-                self.ActiveModule = 0
+                if self.Framework.Modules:
+                    self.ActiveModule = self.Framework.Modules[0]
                 self.ChangeDisplayedParams(0)
                 try:
                     self.SetDisplayedCodefile('Documentation', SaveCurrentFile = False)
@@ -255,8 +272,25 @@ class GUI:
         self.Framework.Files[self.CurrentCodeFile]['data'] = CurrentText
 
     def AddModule(self, ModuleName):
-        self.Log("Adding " + ModuleName)
-        self.Framework.AddModule(self.AvailableModules[ModuleName], self.AvailablesModulesPositions[self.SelectedAvailableModulePosition][1])
+        ModuleNames = [Module['name'] for Module in self.Framework.Modules]
+        AskedModuleName = ModuleName
+        N = 0
+        while AskedModuleName in ModuleNames:
+            N += 1
+            AskedModuleName = ModuleName + '_{0}'.format(N)
+
+        self.Log("Adding " + AskedModuleName)
+        ParentID = self.AvailablesModulesPositions[self.SelectedAvailableModulePosition][1]
+        self.Framework.AddModule(self.AvailableModules[ModuleName], ParentID, AskedModuleName)
+        if not ParentID is None:
+            for ParentModule in self.Framework.Modules:
+                if ParentModule['id'] == ParentID:
+                    HandlersParamsIndexes = framework_abstractor.FindModuleHandlers(ParentModule['module'])
+                    for nParam in HandlersParamsIndexes:
+                        if not ParentModule['parameters'][nParam]:
+                            ParentModule['parameters'][nParam] = '@' + AskedModuleName
+                            break
+                    break
         self.AddModuleDisplay(self.Framework.Modules[-1], AutoDraw = True)
 
     def AddModuleDisplay(self, Module, AutoDraw):
@@ -264,7 +298,7 @@ class GUI:
         self.AvailablesModulesPositions.pop(self.SelectedAvailableModulePosition)
         self.AddAvailableSlots(self.DisplayedModulesPositions[Module['id']], Module['module'], Module['id'])
         if AutoDraw:
-            self.ActiveModule = len(self.Framework.Modules)-1
+            self.ActiveModule = self.Framework.Modules[-1]
             self.DrawFramework()
             self.ChangeDisplayedParams(0)
 
@@ -300,7 +334,7 @@ class GUI:
 
     def DisplayModuleCode(self):
         if not self.ActiveModule is None:
-            Module = self.Framework.Modules[self.ActiveModule]
+            Module = self.ActiveModule
             if Module['module']['origin'] == 'tarsier':
                 self.TempFiles[Module['module']['name'] + '.hpp'] = '\n'.join(tarsier_scrapper.GetTarsierCode(Module['module']['name'] + '.hpp', Full = True))
             elif Module['module']['origin'] == 'sepia':
@@ -368,18 +402,29 @@ class GUI:
         self.DisplayAx.clear()
         for Module in self.Framework.Modules:
             if self.Framework.WellDefinedModule(Module):
-                color = 'g'
+                Color = 'g'
             else:
-                color = 'r'
-            self.DrawModule(self.DisplayedModulesPositions[Module['id']], Module['module']['name'], color)
+                Color = 'r'
+            if Module['id'] == self.ActiveModule['id']:
+                Style = '-'
+            else:
+                Style = '--'
+            self.DrawModule(self.DisplayedModulesPositions[Module['id']], Module['name'], Style, Color)
             minValues = np.minimum(minValues, self.DisplayedModulesPositions[Module['id']] - self.ModulesDiameter)
             maxValues = np.maximum(maxValues, self.DisplayedModulesPositions[Module['id']] + self.ModulesDiameter)
+
+            if Module['id'] == self.ActiveModule['id']:
+                Style = '-'
+            else:
+                Style = ':'
+            self.DrawLinksToChildrens(Module, Style, Color)
+
         for nSlot, AvailableSlotAndParent in enumerate(self.AvailablesModulesPositions):
             if nSlot == self.SelectedAvailableModulePosition:
                 alpha = 0.7
             else:
                 alpha = 0.3
-            self.DrawModule(AvailableSlotAndParent[0], '', 'grey', alpha)
+            self.DrawModule(AvailableSlotAndParent[0], '', '-', 'grey', alpha)
             minValues = np.minimum(minValues, AvailableSlotAndParent[0] - self.ModulesDiameter)
             maxValues = np.maximum(maxValues, AvailableSlotAndParent[0] + self.ModulesDiameter)
         Center = (minValues + maxValues)/2.
@@ -391,13 +436,33 @@ class GUI:
         self.Display.canvas.show()
         #self.Log("Done.")
         
-    def DrawModule(self, ModulePosition, ModuleName, color, alpha = 1):
+    def DrawModule(self, ModulePosition, ModuleName, Style, Color, alpha = 1):
         DXs = (self.ModulesDiameter/2 * np.array([np.array([-1, -1]), np.array([-1, 1]), np.array([1, 1]), np.array([1, -1])])).tolist()
         for nDX in range(len(DXs)):
-            self.DisplayAx.plot([(ModulePosition + DXs[nDX])[0], (ModulePosition + DXs[(nDX+1)%4])[0]], [(ModulePosition + DXs[nDX])[1], (ModulePosition + DXs[(nDX+1)%4])[1]], color = color, alpha = alpha)
+            self.DisplayAx.plot([(ModulePosition + DXs[nDX])[0], (ModulePosition + DXs[(nDX+1)%4])[0]], [(ModulePosition + DXs[nDX])[1], (ModulePosition + DXs[(nDX+1)%4])[1]], ls = Style, color = Color, alpha = alpha)
         TextPosition = ModulePosition + self.ModulesDiameter/2 * 0.8 * np.array([-1, -1])
-        self.DisplayAx.text(TextPosition[0], TextPosition[1], s = ModuleName, color = color, alpha = alpha, fontsize = 8)
+        self.DisplayAx.text(TextPosition[0], TextPosition[1], s = ModuleName, color = Color, alpha = alpha, fontsize = 8)
     
+    def DrawLinksToChildrens(self, Module, Style, Color):
+        HandlersParamsIndexes = framework_abstractor.FindModuleHandlers(Module['module'])
+        Links = []
+        for HandleIndex in HandlersParamsIndexes:
+            if not Module['parameters'][HandleIndex]:
+                continue
+            if '@' in Module['parameters'][HandleIndex]:
+                ChildrenName = Module['parameters'][HandleIndex].split('@')[1]
+                for ChildrenModule in self.Framework.Modules:
+                    if ChildrenModule['name'] == ChildrenName:
+                        Links += [(self.DisplayedModulesPositions[Module['id']], self.DisplayedModulesPositions[ChildrenModule['id']], (ChildrenModule['parent_ids'].index(Module['id'])+1.)/(len(ChildrenModule['parent_ids'])+1.))]
+
+        for nLink, Link in enumerate(Links):
+            Start = Link[0] + np.array([-1., -1.]) * self.ModulesDiameter/2 +np.array([1., 0.]) * self.ModulesDiameter * (1. + nLink) / (1. + len(Links))
+            End = Link[1] + np.array([-1., 1.]) * self.ModulesDiameter/2 + np.array([1., 0.]) * self.ModulesDiameter * Link[2]
+            YStep = (Start[1] + End[1])/2
+            self.DisplayAx.plot([Start[0], Start[0]], [Start[1], YStep], ls = Style, color = Color)
+            self.DisplayAx.plot([Start[0], End[0]], [YStep, YStep], ls = Style, color = Color)
+            self.DisplayAx.plot([End[0], End[0]], [YStep, End[1]], ls = Style, color = Color)
+
     def AddAvailableSlots(self, LastAddedPosition, AddedModule, ParentModuleID):
         NOutputs = framework_abstractor.CountEventsHandlers(AddedModule)
         if AddedModule['name'] != 'merge':
@@ -410,15 +475,48 @@ class GUI:
     
     def _OnParameterChange(self, StringVar):
         ParamIndex = self.CurrentParams.index(StringVar)
-        self.Framework.Modules[self.ActiveModule]['parameters'][ParamIndex] = StringVar.get()
-        self.DisplayedParams[ParamIndex][1]['foreground'] = self.GetParamDisplayColor(ParamIndex)
+        NAddedParams = len(self._GetAddedParams())
+        self.ActiveModule['parameters'][self.CurrentMinParamDisplayed + ParamIndex - NAddedParams] = StringVar.get()
+        self.DisplayedParams[ParamIndex][1]['foreground'] = self.GetParamDisplayColor(self.CurrentMinParamDisplayed + ParamIndex - NAddedParams)
+
+    def _OnAddedParameterChange(self, StringVar):
+        ParamIndex = self.CurrentParams.index(StringVar)
+        AddedParamName = self._GetAddedParams()[self.CurrentMinParamDisplayed + ParamIndex]['name']
+        # First check if name is ok and available
+        if AddedParamName == 'Name':
+            AskedName = StringVar.get()
+            if AskedName == '':
+                self.DisplayedParams[ParamIndex][1]['foreground'] = 'red'
+                return None
+            for Module in self.Framework.Modules:
+                if Module['name'] == AskedName:
+                    self.DisplayedParams[ParamIndex][1]['foreground'] = 'red'
+                    return None
+
+            self.DisplayedParams[ParamIndex][1]['foreground'] = 'black'
+
+            PreviousName = self.ActiveModule['name']
+            self.ActiveModule['name'] = AskedName
+            for ParentID in self.ActiveModule['parent_ids']:
+                if not ParentID is None:
+                    for Module in self.Framework.Modules:
+                        if Module['id'] == ParentID:
+                            for nParam, Param in enumerate(Module['parameters']):
+                                if '@' in Param and Param.split('@')[1] == PreviousName:
+                                    Module['parameters'][nParam] = '@' + AskedName
+
+            self.DrawFramework()
+
+    def _GetAddedParams(self):
+        return [{'name': 'Name', 'type': '', 'default': self.ActiveModule['name']}]
 
     def ChangeDisplayedParams(self, Mod):
         for Trio in self.DisplayedParams:
             for Field in Trio:
                 Field.destroy()
         if not self.ActiveModule is None:
-            ModuleParameters = self.Framework.Modules[self.ActiveModule]['module']['parameters']
+            AddedParams = self._GetAddedParams()
+            ModuleParameters = AddedParams + self.ActiveModule['module']['parameters']
             if Mod == 0:
                 self.CurrentMinParamDisplayed = 0
             else:
@@ -430,20 +528,35 @@ class GUI:
                 self.DisplayedParams[-1] += [Tk.Label(self.ParamsValuesFrame, text = ModuleParameters[NParam]['name'], width = 20, anchor = Tk.W)]
                 self.DisplayedParams[-1][-1].grid(row=len(self.DisplayedParams)-1, column=0, sticky = Tk.N)
 
-                Color = self.GetParamDisplayColor(NParam)
+                if NParam >= len(AddedParams):
+                    Color = self.GetParamDisplayColor(NParam - len(AddedParams))
+                else:
+                    Color = self.GetAddedParamDisplayColor(ModuleParameters[NParam]['name'], ModuleParameters[NParam]['default'])
+
                 self.DisplayedParams[-1] += [Tk.Label(self.ParamsValuesFrame, text = ModuleParameters[NParam]['type'], width = 20, anchor = Tk.W, foreground = Color)]
                 self.DisplayedParams[-1][-1].grid(row=len(self.DisplayedParams)-1, column=1, sticky = Tk.N)
 
                 self.CurrentParams += [Tk.StringVar(self.MainWindow)]
-                self.CurrentParams[-1].trace("w", lambda name, index, mode, sv=self.CurrentParams[-1]: self._OnParameterChange(sv))
+                if NParam >= len(AddedParams):
+                    self.CurrentParams[-1].trace("w", lambda name, index, mode, sv=self.CurrentParams[-1]: self._OnParameterChange(sv))
+                else:
+                    self.CurrentParams[-1].trace("w", lambda name, index, mode, sv=self.CurrentParams[-1]: self._OnAddedParameterChange(sv))
+
                 self.DisplayedParams[-1] += [Tk.Entry(self.ParamsValuesFrame, textvariable = self.CurrentParams[-1], width = 40, bg = 'white')]
                 self.DisplayedParams[-1][-1].grid(row=len(self.DisplayedParams)-1, column=2, sticky = Tk.N+Tk.E)
-                if 'default' in ModuleParameters[NParam].keys():
-                    self.CurrentParams[-1].set(ModuleParameters[NParam]['default'])
+                if NParam >= len(AddedParams) and self.ActiveModule['parameters'][ModuleParameters[NParam]['param_number']]:
+                    self.CurrentParams[-1].set(self.ActiveModule['parameters'][ModuleParameters[NParam]['param_number']])
+                else:
+                    if 'default' in ModuleParameters[NParam].keys():
+                        self.CurrentParams[-1].set(ModuleParameters[NParam]['default'])
+
+    def GetAddedParamDisplayColor(self, ParamName, ParamValue):
+        if ParamName == 'Name':
+            return 'black'
 
     def GetParamDisplayColor(self, NParam):
-        ModuleParameters = self.Framework.Modules[self.ActiveModule]['module']['parameters']
-        TypeCanBeenChecked, ValueWasChecked = framework_abstractor.CheckParameterValidity(ModuleParameters[NParam]['type'], self.Framework.Modules[self.ActiveModule]['parameters'][NParam])
+        ModuleParameters = self.ActiveModule['module']['parameters']
+        TypeCanBeenChecked, ValueWasChecked = framework_abstractor.CheckParameterValidity(ModuleParameters[NParam]['type'], self.ActiveModule['parameters'][NParam])
         if not TypeCanBeenChecked:
             Color = 'black'
         else:
