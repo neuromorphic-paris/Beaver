@@ -174,12 +174,6 @@ class GUI:
         self.ParamsFrame.grid(row = 2, column = 0, rowspan = 1, columnspan = 1, sticky=Tk.N+Tk.S+Tk.E+Tk.W)
         self.ParamsTitleFrame = Tk.Frame(self.ParamsFrame)
         self.ParamsTitleFrame.grid(row = 0, column = 0, columnspan = 2, sticky=Tk.N+Tk.S+Tk.W)
-        NameLabel = Tk.Label(self.ParamsTitleFrame, text = 'Name', width = 20, justify = 'left')
-        NameLabel.grid(row = 0, column = 0, sticky = Tk.W)
-        TypeLabel = Tk.Label(self.ParamsTitleFrame, text = 'Type', width = 20, justify = 'left')
-        TypeLabel.grid(row = 0, column = 1)
-        ValueLabel = Tk.Label(self.ParamsTitleFrame, text = 'Value', width = 10, justify = 'left')
-        ValueLabel.grid(row = 0, column = 2, sticky = Tk.E)
 
         self.ParamsValuesFrame = Tk.Frame(self.ParamsFrame, bd = 2, relief='groove')
         self.ParamsValuesFrame.grid(row = 1, column = 0, sticky = Tk.N+Tk.S+Tk.E+Tk.W)
@@ -191,7 +185,7 @@ class GUI:
         self.ParamsLowerButton.grid(row = 1, column = 0)
         self.CurrentParams = []
         self.DisplayedParams = []
-        self.NParamsDisplayed = 10
+        self.NFieldsDisplayed = 10
         self.CurrentMinParamDisplayed = 0
 
 
@@ -898,6 +892,8 @@ class GUI:
                 self.Framework.Data['name'] = AskedName
                 self.MainWindow.title('Beaver - {0}'.format(AskedName))
 
+    def _OnTemplateChange(self, StringVar):
+        None
 
     def _AddedParamValidity(self, AddedParamName, AddedParamValue):
         if AddedParamName == 'Name':
@@ -923,46 +919,83 @@ class GUI:
                 Field.destroy()
         if self.ActiveItem is None:
             AddedParams = self._GetBlankAddedParams()
-            ModuleParameters = AddedParams
+            ModuleParameters = []
+            ModuleTemplates = []
+            
         elif type(self.ActiveItem) == dict:
             AddedParams = self._GetModuleAddedParams()
-            ModuleParameters = AddedParams + self.ActiveItem['module']['parameters']
+            ModuleParameters = self.ActiveItem['module']['parameters']
+            ModuleTemplates = self.ActiveItem['module']['templates']
         elif type(self.ActiveItem) == tuple:
             AddedParams = self._GetLinkAddedParams()
-            ModuleParameters = AddedParams
+            ModuleParameters = []
+            ModuleTemplates = []
+
+        ItemsFields = []
+        if AddedParams or ModuleParameters:
+            ItemsFields += [{'name':'Parameter', 'type': 'Type', 'value': 'Value'}]
+        ItemsFields += AddedParams
+        ItemsFields += ModuleParameters
+        if ModuleTemplates:
+            ItemsFields += [{'name':'Template', 'type': 'Type', 'value': 'Value'}]
+        ItemsFields += ModuleTemplates
 
         if Mod == 0:
             self.CurrentMinParamDisplayed = 0
         else:
-            self.CurrentMinParamDisplayed = max(0, min(len(ModuleParameters) - self.NParamsDisplayed, self.CurrentMinParamDisplayed + Mod))
+            self.CurrentMinParamDisplayed = max(0, min(len(ItemsFields) - self.NFieldsDisplayed, self.CurrentMinParamDisplayed + Mod))
         self.DisplayedParams = []
         self.CurrentParams = []
-        for NParam in range(self.CurrentMinParamDisplayed, min(len(ModuleParameters), self.CurrentMinParamDisplayed + self.NParamsDisplayed)):
-            self.DisplayedParams += [[]]
-            if NParam >= len(AddedParams):
-                Color = self.GetParamDisplayColor(NParam - len(AddedParams))
-            else:
-                Color = self.GetAddedParamDisplayColor(ModuleParameters[NParam]['name'], ModuleParameters[NParam]['default'])
 
-            self.DisplayedParams[-1] += [Tk.Label(self.ParamsValuesFrame, text = ModuleParameters[NParam]['name'], width = 20, anchor = Tk.W, foreground = Color)]
+        NameLabel = Tk.Label(self.ParamsTitleFrame, text = 'Name', width = 20, justify = 'left')
+        NameLabel.grid(row = 0, column = 0, sticky = Tk.W)
+        TypeLabel = Tk.Label(self.ParamsTitleFrame, text = 'Type', width = 20, justify = 'left')
+        TypeLabel.grid(row = 0, column = 1)
+        ValueLabel = Tk.Label(self.ParamsTitleFrame, text = 'Value', width = 10, justify = 'left')
+        ValueLabel.grid(row = 0, column = 2, sticky = Tk.E)
+        for NField in range(self.CurrentMinParamDisplayed, min(len(ItemsFields), self.CurrentMinParamDisplayed + self.NFieldsDisplayed)):
+            Field = ItemsFields[NField]
+            self.DisplayedParams += [[]]
+            if Field in ModuleParameters:
+                Color = self.GetParamDisplayColor(ModuleParameters.index(Field))
+                self.CurrentParams += [Tk.StringVar(self.MainWindow)]
+                CBFunction = self._OnParameterChange
+            elif Field in AddedParams:
+                Color = self.GetAddedParamDisplayColor(Field['name'], Field['default'])
+                self.CurrentParams += [Tk.StringVar(self.MainWindow)]
+                CBFunction = self._OnAddedParameterChange
+            elif Field in ModuleTemplates:
+                Color = self.GetTemplateDisplayColor(ModuleTemplates.index(Field))
+                self.CurrentParams += [Tk.StringVar(self.MainWindow)]
+                CBFunction = self._OnTemplateChange
+            else:
+                Color = 'black'
+                CBFunction = None
+
+            self.DisplayedParams[-1] += [Tk.Label(self.ParamsValuesFrame, text = Field['name'], width = 20, anchor = Tk.W, foreground = Color)]
             self.DisplayedParams[-1][-1].grid(row=len(self.DisplayedParams)-1, column=0, sticky = Tk.N)
 
-            self.DisplayedParams[-1] += [Tk.Label(self.ParamsValuesFrame, text = ModuleParameters[NParam]['type'], width = 20, anchor = Tk.W)]
+            self.DisplayedParams[-1] += [Tk.Label(self.ParamsValuesFrame, text = Field['type'], width = 20, anchor = Tk.W)]
             self.DisplayedParams[-1][-1].grid(row=len(self.DisplayedParams)-1, column=1, sticky = Tk.N)
 
-            self.CurrentParams += [Tk.StringVar(self.MainWindow)]
-            if NParam >= len(AddedParams):
-                self.CurrentParams[-1].trace("w", lambda name, index, mode, sv=self.CurrentParams[-1]: self._OnParameterChange(sv))
+            if not CBFunction is None:
+                self.CurrentParams[-1].trace("w", lambda name, index, mode, sv=self.CurrentParams[-1]: CBFunction(sv))
+                self.DisplayedParams[-1] += [Tk.Entry(self.ParamsValuesFrame, textvariable = self.CurrentParams[-1], width = 40, bg = 'white')]
             else:
-                self.CurrentParams[-1].trace("w", lambda name, index, mode, sv=self.CurrentParams[-1]: self._OnAddedParameterChange(sv))
-
-            self.DisplayedParams[-1] += [Tk.Entry(self.ParamsValuesFrame, textvariable = self.CurrentParams[-1], width = 40, bg = 'white')]
+                self.DisplayedParams[-1] += [Tk.Label(self.ParamsValuesFrame, text = Field['value'], width = 20, anchor = Tk.W)]
             self.DisplayedParams[-1][-1].grid(row=len(self.DisplayedParams)-1, column=2, sticky = Tk.N+Tk.E)
-            if NParam >= len(AddedParams) and self.ActiveItem['parameters'][ModuleParameters[NParam]['param_number']]:
-                self.CurrentParams[-1].set(self.ActiveItem['parameters'][ModuleParameters[NParam]['param_number']])
-            else:
-                if 'default' in ModuleParameters[NParam].keys():
-                    self.CurrentParams[-1].set(ModuleParameters[NParam]['default'])
+            if Field in ModuleParameters:
+                if self.ActiveItem['parameters'][Field['param_number']]:
+                    self.CurrentParams[-1].set(self.ActiveItem['parameters'][Field['param_number']])
+                else:
+                    if 'default' in Field.keys():
+                        self.CurrentParams[-1].set(Field['default'])
+            elif Field in ModuleTemplates:
+                if self.ActiveItem['templates'][Field['template_number']]:
+                    self.CurrentParams[-1].set(self.ActiveItem['template'][Field['template_number']])
+                else:
+                    if 'default' in Field.keys():
+                        self.CurrentParams[-1].set(Field['default'])
 
     def GetAddedParamDisplayColor(self, ParamName, ParamValue):
         if not self._AddedParamValidity(ParamName, ParamValue):
@@ -981,6 +1014,9 @@ class GUI:
             else:
                 Color = 'red'
         return Color
+
+    def GetTemplateDisplayColor(self, NTemplate):
+        return 'black'
 
 def GenerateNewType(Type):
     if Type == 'Struct':

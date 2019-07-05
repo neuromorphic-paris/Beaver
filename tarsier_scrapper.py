@@ -122,7 +122,7 @@ def ExtractTemplates(Lines, FuncStartLine):
             print "Unexpected templates definition between lines {0} and {1}: ".format(StartLine+1, EndLine+1)
             print Outs
             return Templates
-        Templates += [{'name': Outs[1], 'type' :Outs[0], 'template_number': nTemplate}]
+        Templates += [{'name': Outs[1], 'type' :Outs[0], 'template_number': nTemplate, 'default': ''}]
         nTemplate += 1
     return Templates
 
@@ -177,6 +177,7 @@ def ExtractEventRequiredFields(Lines, FuncName):
                 FinalField = AppearingField[:nChar]
                 if FinalField[0] == '_':
                     FinalField = FinalField[1:]
+                FinalField = VarName + '.' + FinalField
                 if FinalField not in RequiredFields:
                     RequiredFields += [FinalField]
         if not Line:

@@ -43,7 +43,7 @@ class FrameworkAbstraction:
             NewID = 0
         else:
             NewID = max(self.ModulesIDs) + 1
-        self.Modules += [{'module': Module, 'id': NewID, 'parameters': [param['default'] for param in Module['parameters']], 'parent_ids': [], 'name': Module['name']}]
+        self.Modules += [{'module': Module, 'id': NewID, 'parameters': [param['default'] for param in Module['parameters']], 'parent_ids': [], 'name': Module['name'], 'templates': [template['default'] for template in Module['templates']]}]
         if not AskedModuleName is None:
             self.Modules[-1]['name'] = AskedModuleName
         self.ModulesIDs += [NewID]

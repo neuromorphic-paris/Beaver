@@ -12,6 +12,7 @@ TEMPLATE_LINE_INDICATOR = 'template'
 TEMPLATE_PARAM_TYPE = 'typename'
 
 SEPIA_TYPES_INDICATOR = "enum class type"
+SEPIA_TYPES_DEFINITION_LINE = "struct event<type::{0}>"
 TEMPLATE_SCRAPED_FUNCTIONS = ['make_split', 'join_observable', 'make_observable']
 
 def GetSepiaCode(Full = False):
@@ -51,7 +52,41 @@ def GetSepiaTypes(Lines):
         else:
             RawDefault = None
         if RawType.strip():
-            Types[RawType.strip()] = {'value': RawDefault, 'origin': 'sepia'}
+            Types[RawType.strip()] = {'value': RawDefault, 'origin': 'sepia', 'fields': []}
+            Definition = SEPIA_TYPES_DEFINITION_LINE.format(RawType.strip())
+            StudiedPart = ''
+            for nLine, Line in enumerate(Lines):
+                if Definition in Line and (COMMENT_INDICATOR not in Line or Line.index(COMMENT_INDICATOR) > Line.index(Definition)):
+                    print "Found definition of type {0} at line {1}".format(RawType.strip(), nLine)
+                    StudiedPart = StudiedPart + Line.split(COMMENT_INDICATOR)[0] + '\n'
+                    continue
+                if StudiedPart:
+                    StudiedPart = StudiedPart + '\n' + Line
+                    if '}' in Line:
+                        break
+            if not StudiedPart:
+                continue
+            StudiedPart = ('{'.join(StudiedPart.split('{')[1:]))
+            StudiedPart = ('}'.join(StudiedPart.split('}')[:-1]))
+            TypeLines = StudiedPart.split('\n')
+            for Line in TypeLines:
+                UsefulPart = Line.split(COMMENT_INDICATOR)[0].strip()
+                if not UsefulPart:
+                    continue
+                if not ';' in UsefulPart:
+                    continue
+                UsefulPart = UsefulPart.split(';')[0]
+                Field = {'name':None, 'type':None}
+                for RawData in UsefulPart.split(' '):
+                    if not RawData.strip():
+                        continue
+                    if Field['type'] is None:
+                        Field['type'] = RawData.strip()
+                    elif Field['name'] is None:
+                        Field['name'] = RawData.strip()
+                        Types[RawType.strip()]['fields'] += [Field]
+                        break
+
     return Types
 
 def FindTemplateFunctions(Lines, funcName):
@@ -122,7 +157,7 @@ def ExtractTemplates(Lines, FuncStartLine):
         Outs = [RawOut for RawOut in RawOuts if RawOut]
 
         if len(Outs) == 2:
-            Templates += [{'name': Outs[1], 'type' :Outs[0], 'template_number': nTemplate}]
+            Templates += [{'name': Outs[1], 'type' :Outs[0], 'template_number': nTemplate, 'default' :''}]
             nTemplate += 1
         elif len(Outs) != 2 and Outs.count("=") == 1:
             RawParameter, DefaultParameter = RawParameter.split('=')
