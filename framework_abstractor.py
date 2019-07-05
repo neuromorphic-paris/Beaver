@@ -7,7 +7,7 @@ import sepia_scrapper
 
 class FrameworkAbstraction:
     def __init__(self, Data = None, LogFunction = None):
-        self.Data = {'modules': [], 'name': '', 'events_types': [], 'files': {'Documentation':{'data': '~ Generated with Beaver ~', 'type': 'documentation'}}, 'user_defined': []}
+        self.Data = {'modules': [], 'name': '', 'events_types': [], 'files': {'Documentation':{'data': '~ Generated with Beaver ~', 'type': 'documentation'}}, 'user_defined': [], 'links_types': {}, 'chameleon_tiles': {}}
         self.ModulesIDs = []
         self.HasChameleon = False
         self.HasTariser = False
@@ -18,6 +18,8 @@ class FrameworkAbstraction:
         self.EventsTypes = self.Data['events_types']
         self.Files = self.Data['files'] # Abstracted Files, not actual ones
         self.UserWrittenCode = self.Data['user_defined']
+        self.LinksTypes = self.Data['links_types']
+        self.ChameleonTiles = self.Data['chameleon_tiles']
         
         if LogFunction is None:
             self.LogFunction = sys.stdout.write
@@ -36,15 +38,52 @@ class FrameworkAbstraction:
             elif Module['module']['origin'] == 'chameleon':
                 self.HasChameleon = True
 
-    def AddModule(self, Module, ParentID, AskedModuleName = None):
+    def AddModule(self, Module, AskedModuleName = None):
         if not self.ModulesIDs:
             NewID = 0
         else:
             NewID = max(self.ModulesIDs) + 1
-        self.Modules += [{'module': Module, 'id': NewID, 'parameters': [param['default'] for param in Module['parameters']], 'parent_ids': [ParentID], 'name': Module['name']}]
+        self.Modules += [{'module': Module, 'id': NewID, 'parameters': [param['default'] for param in Module['parameters']], 'parent_ids': [], 'name': Module['name']}]
         if not AskedModuleName is None:
             self.Modules[-1]['name'] = AskedModuleName
         self.ModulesIDs += [NewID]
+        return self.Modules[-1]
+
+    def AddLink(self, ParentID, ChildrenID):
+        ParentModule = self.GetModuleByID(ParentID)
+        ChildrenModule = self.GetModuleByID(ChildrenID)
+
+        Added = False
+        HandlersParamsIndexes = FindModuleHandlers(ParentModule['module'])
+        for nParam in HandlersParamsIndexes:
+            if not ParentModule['parameters'][nParam]:
+                ParentModule['parameters'][nParam] = '@' + ChildrenModule['name']
+                Added = True
+                break
+        if not Added:
+            self.LogFunction("Unable to link {0} to {1} : no Handler slot available".format(ParentModule['name'], ChildrenModule['name']))
+            return False
+        ChildrenModule['parent_ids'] += [ParentID]
+        self.LinksTypes[GetLinkTuple(ParentID, ChildrenID)] = None
+        return True
+
+    def RemoveLink(self, ParentID, ChildrenID):
+        ParentModule = self.GetModuleByID(ParentID)
+        ChildrenModule = self.GetModuleByID(ChildrenID)
+
+        Removed = False
+        HandlersParamsIndexes = FindModuleHandlers(ParentModule['module'])
+        for nParam in HandlersParamsIndexes:
+            if ParentModule['parameters'][nParam] and ParentModule['parameters'][nParam].split('@')[-1] == ChildrenModule['name']:
+                ParentModule['parameters'][nParam] = ''
+                Removed = True
+                break
+        if not Removed:
+            self.LogFunction("Unable to find and remove link from {0} to {1}".format(ParentModule['name'], ChildrenModule['name']))
+            return False
+        ChildrenModule['parent_ids'].remove(ParentModule['id'])
+        del self.LinksTypes[GetLinkTuple(ParentID, ChildrenID)]
+        return True
 
     def GenerateCode(self):
         self.Writer.WriteCode(self.Data)
@@ -73,11 +112,35 @@ class FrameworkAbstraction:
             if Module['id'] == ID:
                 return Module
 
+    def GetModuleByName(self, Name):
+        for Module in self.Modules:
+            if Module['name'] == Name:
+                return Module
+
+    def GetChildrenIDs(self, ParentID):
+        IDs = []
+        ParentModule = self.GetModuleByID(ParentID)
+        HandlersParamsIndexes = FindModuleHandlers(ParentModule['module'])
+        for nParam in HandlersParamsIndexes:
+            if ParentModule['parameters'][nParam]:
+                IDs += [self.GetModuleByName(ParentModule['parameters'][nParam].split('@')[-1])['id']]
+        return IDs
+
+    def GetParentAndChildFromLinkTuple(self, Tuple):
+        if Tuple[1] in self.GetModuleByID(Tuple[0])['parent_ids']:
+            return Tuple[1], Tuple[0]
+        else:
+            return Tuple[0], Tuple[1]
+
+def GetLinkTuple(M1ID, M2ID):
+    return (min(M1ID, M2ID), max(M1ID, M2ID))
+
 def FindModuleHandlers(Module):
     Indexes = []
     for nParam, Param in enumerate(Module['parameters']):
         if re.compile('Handle[a-zA-Z]*').match(Param['type']):
-            Indexes += [nParam]
+            if 'exception' not in Param['type'].lower():
+                Indexes += [nParam]
     return Indexes
 
 def CountEventsHandlers(Module):

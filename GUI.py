@@ -7,6 +7,7 @@ from matplotlib.figure import Figure
 from matplotlib.patches import Rectangle
 
 import Tkinter as Tk
+from PIL import Image, ImageTk
 import ttk
 import ScrolledText
 import tkMessageBox
@@ -20,9 +21,19 @@ matplotlib.use("TkAgg")
 
 import tarsier_scrapper
 import sepia_scrapper
+import chameleon_scrapper
 import framework_abstractor
 
 PROJECTS_DIR = 'Projects/'
+
+TARSIER_UNSUPPORTED_MODULES = []
+TARSIER_UNSUPPORTED_MODULES += ['hash'] # handle_event is in destructor, as it forces compiler to run the code
+
+SEPIA_UNSUPPORTED_MODULES = []
+
+CHAMELEON_UNSUPPORTED_MODULES = []
+
+UNSUPPORTED_MODULES = TARSIER_UNSUPPORTED_MODULES + SEPIA_UNSUPPORTED_MODULES + CHAMELEON_UNSUPPORTED_MODULES
 
 def about_command():
     label = tkMessageBox.showinfo("About", "Tarsier code geneerator\nWork In Progress, be kind\nPlease visit https://github.com/neuromorphic-paris/")
@@ -35,11 +46,14 @@ class GUI:
 
         TarsierModules = tarsier_scrapper.ScrapTarsierFolder()
         SepiaModules, SepiaTypes = sepia_scrapper.ScrapSepiaFile()
+        ChameleonModules = chameleon_scrapper.ScrapChameleonFolder()
 
         self.AvailableModules = {}
         for ModuleName, Module in TarsierModules.items():
             self.AvailableModules[ModuleName] = Module
         for ModuleName, Module in SepiaModules.items():
+            self.AvailableModules[ModuleName] = Module
+        for ModuleName, Module in ChameleonModules.items():
             self.AvailableModules[ModuleName] = Module
 
         self.AvailableTypes = {}
@@ -73,11 +87,18 @@ class GUI:
         tarsiermenu = Tk.Menu(insertmenu)
         insertmenu.add_cascade(label = "Tarsier", menu = tarsiermenu)
         for Module in TarsierModules.keys():
-            tarsiermenu.add_command(label=Module, command=partial(self.AddModule, str(Module)))
+            if Module not in UNSUPPORTED_MODULES:
+                tarsiermenu.add_command(label=Module, command=partial(self.AddModule, str(Module)))
+        chameleonmenu = Tk.Menu(insertmenu)
+        insertmenu.add_cascade(label = "Chameleon", menu = chameleonmenu)
+        for Module in ChameleonModules.keys():
+            if Module not in UNSUPPORTED_MODULES:
+                chameleonmenu.add_command(label=Module, command=partial(self.AddModule, str(Module)))
         sepiamenu = Tk.Menu(insertmenu)
         insertmenu.add_cascade(label = "Sepia", menu = sepiamenu)
         for Module in SepiaModules.keys():
-            sepiamenu.add_command(label=Module, command=partial(self.AddModule, str(Module)))
+            if Module not in UNSUPPORTED_MODULES:
+                sepiamenu.add_command(label=Module, command=partial(self.AddModule, str(Module)))
         sepiamenu.add_separator()
         for Type in SepiaTypes.keys():
             sepiamenu.add_command(label=Type, command=lambda : self.SetType(Type))
@@ -100,18 +121,37 @@ class GUI:
         self.DisplayCanvas.show()
         self.DisplayCanvas.get_tk_widget().grid(row = 0, column = 0)
 
-        self.AvailablesModulesPositions = [(np.array([0,0]), None)]
+        self.AutoAddBGR = False
+        self.AvailablesModulesPositions = []
         self.SelectedAvailableModulePosition = 0
+        self.SelectedAvailableChameleonModulePosition = 0
         self.ModulesDiameter = 2.
         self.ModulesTilingDistance = 4.
         self.DisplayedModulesPositions = {}
-        self.ActiveModule = None
+
+        self.OffsetLinks = {}
+        self.DisplayedLinks = {}
+        self.ActiveItem = None
         
         self.DisplayCodeLinkFrame = Tk.Frame(self.MainWindow)
         self.DisplayCodeLinkFrame.grid(row = 0, column = 1)
-        self.ModuleCodeDisplayButton = Tk.Button(self.DisplayCodeLinkFrame, text = '?', command = self.DisplayModuleCode, font = tkFont.Font(size = 20))
+        self.DisplayWorkFrame = Tk.Frame(self.DisplayCodeLinkFrame, bd = 4, relief='groove')
+        self.DisplayWorkFrame.grid(row = 0, column = 0)
+        ErasePicture = ImageTk.PhotoImage(file = 'Icons/erase.png')
+        self.RemoveModuleButton = Tk.Button(self.DisplayWorkFrame, image=ErasePicture, command = self.RemoveModule)
+        self.RemoveModuleButton.image = ErasePicture
+        self.RemoveModuleButton.grid(row = 0, column = 0)
+        RoutePicture = ImageTk.PhotoImage(file = 'Icons/route.png')
+        self.RouteModuleButton = Tk.Button(self.DisplayWorkFrame, image=RoutePicture, command = self.RouteModule)
+        self.RouteModuleButton.image = RoutePicture
+        self.RouteModuleButton.grid(row = 1, column = 0)
+        self.WaitingForRoute = None
+
+        self.CodeWorkFrame = Tk.Frame(self.DisplayCodeLinkFrame, bd = 4, relief='groove')
+        self.CodeWorkFrame.grid(row = 1, column = 0)
+        self.ModuleCodeDisplayButton = Tk.Button(self.CodeWorkFrame, text = '?', command = self.DisplayModuleCode, font = tkFont.Font(size = 20))
         self.ModuleCodeDisplayButton.grid(row = 0, column = 0)
-        self.CodeGenerationButton = Tk.Button(self.DisplayCodeLinkFrame, text = 'C++', command = self.GenerateCode, font = tkFont.Font(size = 20))
+        self.CodeGenerationButton = Tk.Button(self.CodeWorkFrame, text = 'C++', command = self.GenerateCode, font = tkFont.Font(size = 20))
         self.CodeGenerationButton.grid(row = 1, column = 0)
 
         self.TempFiles = {}
@@ -125,7 +165,7 @@ class GUI:
         self.CodeFileMenu = Tk.OptionMenu(self.CodeFrame, self.CodeFileVar, *self.Framework.Files)
         self.CodeFileMenu.grid(row = 0, column = 0)
         self.CodePad = ScrolledText.ScrolledText(self.CodeFrame, width=120, height=40, bg = 'white')
-        self.CodePad.bind("<<TextModified>>", self.OnCodeModification)
+        self.CodePad.bind("<<TextModified>>", self._onCodeModification)
         self.CodePad.grid(row = 1, column = 0)
         self.UpdateCodeMenu()
         self.SetDisplayedCodefile(self.CurrentCodeFile, SaveCurrentFile = False)
@@ -166,6 +206,7 @@ class GUI:
         self.ConsolePad.grid(row = 2, column = 2, sticky=Tk.N+Tk.S)
         self.MAX_LOG_LINES = 50
         
+        self.RegenerateAvailableSlots()
         self.DrawFramework()
         self.ChangeDisplayedParams(0)
 
@@ -178,19 +219,39 @@ class GUI:
             self.MainWindow.destroy()
 
     def _OnDisplayClick(self, event):
+        if not self.Framework.Modules:
+            return None
         Click = np.array([event.xdata, event.ydata])
         for Module in self.Framework.Modules:
             if (abs(self.DisplayedModulesPositions[Module['id']] - Click) < self.ModulesDiameter/2.).all():
-                self.ActiveModule = Module
+                self.ActiveItem = Module
 		self.DrawFramework()
                 self.ChangeDisplayedParams(0)
-                break
+                if not self.WaitingForRoute is None:
+                    self.RouteModule()
+                print Module
+                return None
+        self.WaitingForRoute = None
+        for LinkTuple, LinkText in self.DisplayedLinks.items():
+            Contains, AddDict = LinkText.contains(event)
+            if Contains:
+                self.ActiveItem = LinkTuple
+		self.DrawFramework()
+                self.ChangeDisplayedParams(0)
+                return None
+
         for nPosition, PositionAndParent in enumerate(self.AvailablesModulesPositions):
             if (abs(PositionAndParent[0] - Click) < self.ModulesDiameter/2.).all():
-                self.SelectedAvailableModulePosition = nPosition
+                if PositionAndParent[1:].count(None) == 0: # Only case where were have a parent AND a child, that are not actually that.
+                    self.SelectedAvailableChameleonModulePosition = nPosition
+                else:
+                    self.SelectedAvailableModulePosition = nPosition
 		self.DrawFramework()
                 self.ChangeDisplayedParams(0)
-                break
+                return None
+        self.ActiveItem = None
+	self.DrawFramework()
+        self.ChangeDisplayedParams(0)
 
     def GenerateEmptyFramework(self):
         if self.Framework.Modules:
@@ -206,7 +267,18 @@ class GUI:
             self.FrameworkFileName = file.name
             self.MainWindow.title('Beaver - {0}'.format(self.Framework.Data['name']))
 
+            self.TempFiles = {}
+            self.CurrentParams = []
+            self.DisplayedParams = []
+            self.CurrentMinParamDisplayed = 0
+            self.RegenerateAvailableSlots()
+            self.DisplayedModulesPositions = {}
+            self.OffsetLinks = {}
+
+            self.UpdateCodeMenu()
+            self.ActiveItem = None
         self.DrawFramework()
+        self.ChangeDisplayedParams(0)
 
     def save_command(self):
         self.RegisterCurrentCodePad()
@@ -225,17 +297,14 @@ class GUI:
         with tkFileDialog.asksaveasfile(mode='w', initialdir = PROJECTS_DIR, initialfile = self.Framework.Data['name'], defaultextension='.json', title = "Save as...", filetypes=[("JSON","*.json")]) as file:
             if not file is None:
                 NewName =  file.name.split('/')[-1].split('.json')[0]
-                if self.Framework.Data['name']:
-                    if NewName != self.Framework.Data['name'] and tkMessageBox.askyesno("Name changed", "Do you want to change project name from \n{0} \nto {1} ?"):
-                        self.Framework.Data['name'] = NewName
-                        self.MainWindow.title('Beaver - {0}'.format(self.Framework.Data['name']))
-                else:
+                if not self.Framework.Data['name'] or (NewName != self.Framework.Data['name'] and tkMessageBox.askyesno("Name changed", "Do you want to change project name from \n{0} \nto {1} ?".format(self.Framework.Data['name'], NewName))):
                     self.Framework.Data['name'] = NewName
                     self.MainWindow.title('Beaver - {0}'.format(self.Framework.Data['name']))
 
                 json.dump(self.Framework.Data, file)
                 self.FrameworkFileName = file.name
                 self.Log("Saved.")
+        self.ChangeDisplayedParams(0)
         
     def open_command(self):
         with tkFileDialog.askopenfile(parent=self.MainWindow,mode='rb', initialdir = PROJECTS_DIR, title='Open...', defaultextension='.json', filetypes=[("JSON","*.json")]) as file:
@@ -249,21 +318,22 @@ class GUI:
                 self.CurrentParams = []
                 self.DisplayedParams = []
                 self.CurrentMinParamDisplayed = 0
-                self.AvailablesModulesPositions = [(np.array([0,0]), None)]
-                self.SelectedAvailableModulePosition = 0
+                self.RegenerateAvailableSlots()
                 self.DisplayedModulesPositions = {}
+                
+                self.OffsetLinks = {}
 
                 self.UpdateCodeMenu()
                 for Module in self.Framework.Modules:
                     self.AddModuleDisplay(Module, AutoDraw = False)
-                if self.Framework.Modules:
-                    self.ActiveModule = self.Framework.Modules[0]
+                self.ActiveItem = None
                 self.ChangeDisplayedParams(0)
                 try:
                     self.SetDisplayedCodefile('Documentation', SaveCurrentFile = False)
                 except:
                     self.SetDisplayedCodefile(self.Framework.Files.keys()[0], SaveCurrentFile = False)
         self.DrawFramework()
+        self.ChangeDisplayedParams(0)
 
     def RegisterCurrentCodePad(self):
         if self.CurrentCodeFile in self.TempFiles.keys():
@@ -272,6 +342,10 @@ class GUI:
         self.Framework.Files[self.CurrentCodeFile]['data'] = CurrentText
 
     def AddModule(self, ModuleName):
+        if self.AvailableModules[ModuleName]['origin'] == 'chameleon':
+            self.AddChameleonModule(ModuleName)
+            return None
+
         ModuleNames = [Module['name'] for Module in self.Framework.Modules]
         AskedModuleName = ModuleName
         N = 0
@@ -281,26 +355,271 @@ class GUI:
 
         self.Log("Adding " + AskedModuleName)
         ParentID = self.AvailablesModulesPositions[self.SelectedAvailableModulePosition][1]
-        self.Framework.AddModule(self.AvailableModules[ModuleName], ParentID, AskedModuleName)
+        ChildrenID = self.AvailablesModulesPositions[self.SelectedAvailableModulePosition][2]
+        NewModule = self.Framework.AddModule(self.AvailableModules[ModuleName], AskedModuleName)
         if not ParentID is None:
-            for ParentModule in self.Framework.Modules:
-                if ParentModule['id'] == ParentID:
-                    HandlersParamsIndexes = framework_abstractor.FindModuleHandlers(ParentModule['module'])
-                    for nParam in HandlersParamsIndexes:
-                        if not ParentModule['parameters'][nParam]:
-                            ParentModule['parameters'][nParam] = '@' + AskedModuleName
-                            break
-                    break
+            self.AddLink(ParentID, NewModule['id'])
+        if not ChildrenID is None:
+            self.AddLink(NewModule['id'], ChildrenID)
+
         self.AddModuleDisplay(self.Framework.Modules[-1], AutoDraw = True)
 
     def AddModuleDisplay(self, Module, AutoDraw):
         self.DisplayedModulesPositions[Module['id']] = self.AvailablesModulesPositions[self.SelectedAvailableModulePosition][0]
-        self.AvailablesModulesPositions.pop(self.SelectedAvailableModulePosition)
-        self.AddAvailableSlots(self.DisplayedModulesPositions[Module['id']], Module['module'], Module['id'])
+        self.RegenerateAvailableSlots()
         if AutoDraw:
-            self.ActiveModule = self.Framework.Modules[-1]
+            self.ActiveItem = self.Framework.Modules[-1]
             self.DrawFramework()
             self.ChangeDisplayedParams(0)
+
+    def AddChameleonModule(self, ModuleName, AddBGC = True): # As Chameleon modules are quite uniques, we add them apart
+        ModuleNames = [Module['name'] for Module in self.Framework.Modules]
+        AskedModuleName = ModuleName
+        N = 0
+        while AskedModuleName in ModuleNames:
+            N += 1
+            AskedModuleName = ModuleName + '_{0}'.format(N)
+
+        self.Log("Adding " + AskedModuleName)
+        Tile = self.AvailablesModulesPositions[self.SelectedAvailableChameleonModulePosition][1:]
+        if Tile not in self.Framework.ChameleonTiles.keys():
+            self.Framework.ChameleonTiles[Tile] = []
+        if self.AutoAddBGR and AddBGC:
+            FoundBGC = False
+            for ModuleID in self.Framework.ChameleonTiles[Tile]:
+                if self.Framework.GetModuleByID(ModuleID)['module']['name'] == 'background_cleaner':
+                    FoundBGC = True
+                    break
+            if not FoundBGC:
+                self.AddChameleonModule('background_cleaner', AddBGC = False)
+        NewModule = self.Framework.AddModule(self.AvailableModules[ModuleName], AskedModuleName)
+        self.Framework.ChameleonTiles[Tile] += [NewModule['id']]
+
+        self.AddChameleonModuleDisplay(self.Framework.Modules[-1], AutoDraw = True)
+
+
+    def AddChameleonModuleDisplay(self, Module, AutoDraw):
+        self.DisplayedModulesPositions[Module['id']] = self.AvailablesModulesPositions[self.SelectedAvailableChameleonModulePosition][0]
+        self.RegenerateAvailableSlots()
+        if AutoDraw:
+            self.ActiveItem = self.Framework.Modules[-1]
+            self.DrawFramework()
+            self.ChangeDisplayedParams(0)
+
+    def RegenerateAvailableSlots(self):
+        self.AvailablesModulesPositions = []
+        if not [Module['id'] for Module in self.Framework.Modules if Module['module']['origin'] != 'chameleon']:
+            self.AvailablesModulesPositions += [(np.array([0., 0.]), None, None)]
+            self.ChameleonInitialTilePosition = np.array([0., -self.ModulesTilingDistance])
+            self.SelectedAvailableModulePosition = 0
+            self.SelectedAvailableChameleonModulePosition = len(self.AvailablesModulesPositions)
+            self.RegenerateChameleonAvailableSlots()
+            return None
+
+        PossibleSlots = []
+        AskedSlotsByHeight = {}
+        TakenSlotsByHeight = {}
+
+        for Module in self.Framework.Modules:
+            if Module['module']['origin'] == 'chameleon':
+                continue
+            ModuleID = Module['id']
+            ModulePosition = self.DisplayedModulesPositions[ModuleID]
+            ModuleType = Module['module']
+            
+            NOutputs = len([Module['parameters'][nParam] for nParam in framework_abstractor.FindModuleHandlers(ModuleType) if not Module['parameters'][nParam]])
+            if NOutputs:
+                if ModulePosition[1] - self.ModulesTilingDistance not in AskedSlotsByHeight.keys():
+                    AskedSlotsByHeight[ModulePosition[1] - self.ModulesTilingDistance] = []
+                if ModulePosition[1] - self.ModulesTilingDistance not in TakenSlotsByHeight.keys():
+                    TakenSlotsByHeight[ModulePosition[1] - self.ModulesTilingDistance] = []
+                AskedSlotsByHeight[ModulePosition[1] - self.ModulesTilingDistance] += [(ModulePosition[0], ModuleID, -1)] * NOutputs
+            
+            if ModuleType['has_operator']:
+                if ModulePosition[1] + self.ModulesTilingDistance not in AskedSlotsByHeight.keys():
+                    AskedSlotsByHeight[ModulePosition[1] + self.ModulesTilingDistance] = []
+                if ModulePosition[1] + self.ModulesTilingDistance not in TakenSlotsByHeight.keys():
+                    TakenSlotsByHeight[ModulePosition[1] + self.ModulesTilingDistance] = []
+                AskedSlotsByHeight[ModulePosition[1] + self.ModulesTilingDistance] += [(ModulePosition[0], -1, ModuleID)]
+
+            if ModulePosition[1] not in TakenSlotsByHeight.keys():
+                TakenSlotsByHeight[ModulePosition[1]] = []
+            if ModulePosition[1] not in AskedSlotsByHeight.keys():
+                AskedSlotsByHeight[ModulePosition[1]] = []
+            TakenSlotsByHeight[ModulePosition[1]] += [(ModulePosition[0], ModuleID, ModuleID)]
+
+        MinX = np.inf
+        for Height in AskedSlotsByHeight.keys():
+            FinalLine = []
+            Line = AskedSlotsByHeight[Height] + TakenSlotsByHeight[Height]
+            for nIndex, Index in enumerate(np.argsort(np.array(Line)[:,0]).tolist()):
+                FinalLine += [(nIndex * self.ModulesTilingDistance, Line[Index][1], Line[Index][2])]
+            Avg = (np.array(FinalLine)[:,0]).mean()
+
+            def ReplaceNegs(Value):
+                if Value == -1:
+                    return None
+                else:
+                    return Value
+
+            for Item in FinalLine:
+                MinX = min(MinX, Item[0])
+                if -1 in Item:
+                    self.AvailablesModulesPositions += [(np.array([Item[0] - Avg, Height]), ReplaceNegs(Item[1]), ReplaceNegs(Item[2]))]
+                else:
+                    self.DisplayedModulesPositions[Item[1]] = np.array([Item[0] - Avg, Height])
+
+        self.SelectedAvailableModulePosition = 0
+        self.SelectedAvailableChameleonModulePosition = len(self.AvailablesModulesPositions)
+
+        MinHeight = min(AskedSlotsByHeight.keys())
+        ChameleonMaxHeight = MinHeight - self.ModulesTilingDistance
+        self.ChameleonInitialTilePosition = np.array([MinX, ChameleonMaxHeight])
+        self.RegenerateChameleonAvailableSlots()
+
+    def RegenerateChameleonAvailableSlots(self):
+        print "Adding Chameleon Tiles"
+        AddedTiles = []
+        if not self.Framework.ChameleonTiles.keys():
+            AddedTiles += [(0,0)]
+        for Tile, IDs in self.Framework.ChameleonTiles.items():
+            for nModule, ModuleID in enumerate(IDs):
+                self.DisplayedModulesPositions[ModuleID] = self.GetChameleonModulePosition(Tile, nModule)
+            self.AvailablesModulesPositions += [(self.GetChameleonModulePosition(Tile, nModule+1), Tile[0], Tile[1])]
+
+            NextTiles = [(Tile[0], Tile[1] + 1), (Tile[0] + 1, Tile[1]), (Tile[0] + 1, Tile[1] + 1)]
+            for NextTile in NextTiles:
+                if NextTile not in self.Framework.ChameleonTiles.keys() and NextTile not in AddedTiles:
+                    AddedTiles += [NextTile]
+
+        print AddedTiles
+        for Tile in AddedTiles:
+            self.AvailablesModulesPositions += [(self.GetChameleonModulePosition(Tile, 0), Tile[0], Tile[1])]
+        print self.AvailablesModulesPositions
+    
+    def GetChameleonModulePosition(self, Tile, nModule):
+        if not self.Framework.ChameleonTiles.values():
+            TilesSizes = 0
+        else:
+            TilesSizes = max([len(IDs) for IDs in self.Framework.ChameleonTiles.values()])
+        return self.ChameleonInitialTilePosition + np.array([Tile[0] * (TilesSizes*self.ModulesDiameter + self.ModulesTilingDistance), - Tile[1] * self.ModulesTilingDistance/1.5]) + nModule * np.array([self.ModulesDiameter, 0])
+
+    def RemoveModule(self):
+        if self.ActiveItem is None:
+            return None
+        if type(self.ActiveItem) == dict:
+            ModuleName = self.ActiveItem['name']
+            AvailableToRemove = []
+            del self.DisplayedModulesPositions[self.ActiveItem['id']]
+            for ParentID in self.ActiveItem['parent_ids']:
+                ParentModule = self.Framework.GetModuleByID(ParentID)
+                self.RemoveLink(ParentID, self.ActiveItem['id'])
+            for nParameter in framework_abstractor.FindModuleHandlers(self.ActiveItem['module']):
+                if self.ActiveItem['parameters'][nParameter]:
+                    self.RemoveLink(self.ActiveItem['id'], self.Framework.GetModuleByName(self.ActiveItem['parameters'][nParameter].split('@')[1])['id'])
+            self.Framework.Modules.remove(self.ActiveItem)
+            self.ActiveItem = None
+
+            self.RegenerateAvailableSlots()
+            self.DrawFramework()
+            self.ChangeDisplayedParams(0)
+            self.Log("Removed {0}".format(ModuleName))
+        elif type(self.ActiveItem) == tuple:
+            ParentID, ChildID = self.Framework.GetParentAndChildFromLinkTuple(self.ActiveItem)
+            self.RemoveLink(ParentID, ChildID)
+            self.ActiveItem = None
+
+            self.RegenerateAvailableSlots()
+            self.DrawFramework()
+            self.ChangeDisplayedParams(0)
+            self.Log("Removed link from {0} to {1}".format(self.Framework.GetModuleByID(ParentID)['name'], self.Framework.GetModuleByID(ChildID)['name']))
+
+    def RouteModule(self):
+        print "Route called"
+        if self.ActiveItem is None or type(self.ActiveItem) != dict:
+            return None
+        
+        if self.WaitingForRoute is None:
+            HandlersParamsIndexes = framework_abstractor.FindModuleHandlers(self.ActiveItem['module'])
+            FreeSlot = False
+            for nParam in HandlersParamsIndexes:
+                if not self.ActiveItem['parameters'][nParam]:
+                    FreeSlot = True
+                    break
+            if not FreeSlot:
+                return None
+            self.WaitingForRoute = self.ActiveItem['id'] # Will be the parent
+            self.Log('Selected a child module to link to...')
+            self.DrawFramework()
+            return None
+
+        if not self.ActiveItem['module']['has_operator']:
+            self.WaitingForRoute = None
+            self.Log('Selected module cannot receive more inputs')
+            return None
+    
+        if self.ActiveItem['id'] == self.WaitingForRoute:
+            self.WaitingForRoute = None
+            self.Log('Cannot link a module to itself')
+            return None
+
+        NewParentsIDs = self.Framework.GetModuleByID(self.WaitingForRoute)['parent_ids']
+        while NewParentsIDs:
+            OlderGen = []
+            for ParentID in NewParentsIDs:
+                for OlderParentID in self.Framework.GetModuleByID(ParentID)['parent_ids']:
+                    if OlderParentID not in OlderGen:
+                        OlderGen += [OlderParentID]
+                        if OlderParentID == self.ActiveItem['id']:
+                            self.Log('Cannot link create circular dependancies')
+                            self.WaitingForRoute = None
+                            return None
+                NewParentsIDs = list(OlderGen)
+
+        self.Log("Linking {0} to {1}".format(self.Framework.GetModuleByID(self.WaitingForRoute)['name'], self.ActiveItem['name']))
+        self.AddLink(self.WaitingForRoute, self.ActiveItem['id'])
+        if self.DisplayedModulesPositions[self.WaitingForRoute][1] <= self.DisplayedModulesPositions[self.ActiveItem['id']][1]:
+            self.Log('Remapping')
+
+            VOffset = -(self.DisplayedModulesPositions[self.WaitingForRoute][1] - self.ModulesTilingDistance - self.DisplayedModulesPositions[self.ActiveItem['id']][1])
+            LinkTuple = framework_abstractor.GetLinkTuple(self.WaitingForRoute, self.ActiveItem['id'])
+            self.OffsetLinks[LinkTuple] = VOffset
+            AllDescendance = self.GetDescendance(self.ActiveItem['id'])
+            for ID in AllDescendance:
+                self.DisplayedModulesPositions[ID] = self.DisplayedModulesPositions[ID] + np.array([0., -1.]) * self.OffsetLinks[LinkTuple]
+
+        self.WaitingForRoute = None
+        self.RegenerateAvailableSlots()
+        self.DrawFramework()
+        self.ChangeDisplayedParams(0)
+        self.WaitingForRoute = None
+
+    def GetDescendance(self, ElderID):
+        AllDescendance = [ElderID]
+        NewChilds = self.Framework.GetChildrenIDs(ElderID)
+        while NewChilds:
+            NextGenChilds = []
+            for ID in NewChilds:
+                for NewChildID in self.Framework.GetChildrenIDs(ID):
+                    if NewChildID not in NextGenChilds:
+                        NextGenChilds += [NewChildID]
+            AllDescendance += NextGenChilds
+            NewChilds = list(NextGenChilds)
+        return AllDescendance
+
+    def AddLink(self, ParentID, ChildrenID):
+        Success = self.Framework.AddLink(ParentID, ChildrenID)
+        if not Success:
+            return None
+
+    def RemoveLink(self, ParentID, ChildrenID):
+        LinkTuple = framework_abstractor.GetLinkTuple(ParentID, ChildrenID)
+        if LinkTuple in self.OffsetLinks.keys():
+            AllDescendance = self.GetDescendance(ChildrenID)
+            for ID in AllDescendance:
+                self.DisplayedModulesPositions[ID] = self.DisplayedModulesPositions[ID] - np.array([0., -1.]) * self.OffsetLinks[LinkTuple]
+            del self.OffsetLinks[LinkTuple]
+        Success = self.Framework.RemoveLink(ParentID, ChildrenID)
 
     def AddNewType(self, Type):
         TmpName = Type
@@ -330,11 +649,13 @@ class GUI:
         self.SetDisplayedCodefile(LuaFilename)
 
     def GenerateBinary(self):
-        None
+        print self.AvailablesModulesPositions
+        print self.SelectedAvailableModulePosition
+        print self.SelectedAvailableChameleonModulePosition
 
     def DisplayModuleCode(self):
-        if not self.ActiveModule is None:
-            Module = self.ActiveModule
+        if not self.ActiveItem is None and type(self.ActiveItem) == dict:
+            Module = self.ActiveItem
             if Module['module']['origin'] == 'tarsier':
                 self.TempFiles[Module['module']['name'] + '.hpp'] = '\n'.join(tarsier_scrapper.GetTarsierCode(Module['module']['name'] + '.hpp', Full = True))
             elif Module['module']['origin'] == 'sepia':
@@ -378,7 +699,7 @@ class GUI:
             self.CodePad.insert(Tk.END, self.TempFiles[self.CurrentCodeFile])
             self.CurrentCodeType = 'tmp' 
 
-    def OnCodeModification(self):
+    def _onCodeModification(self):
         None
 
     def Log(self, string):
@@ -400,35 +721,38 @@ class GUI:
         maxValues = np.array([0., 0.])
 
         self.DisplayAx.clear()
+        self.DisplayedLinks = {} 
         for Module in self.Framework.Modules:
-            if self.Framework.WellDefinedModule(Module):
-                Color = 'g'
+            if not self.WaitingForRoute is None and self.WaitingForRoute == Module['id']:
+                Color = 'k'
             else:
-                Color = 'r'
-            if Module['id'] == self.ActiveModule['id']:
+                if self.Framework.WellDefinedModule(Module):
+                    Color = 'g'
+                else:
+                    Color = 'r'
+            if not self.ActiveItem is None and type(self.ActiveItem) == dict and Module['id'] == self.ActiveItem['id']:
                 Style = '-'
             else:
                 Style = '--'
             self.DrawModule(Module, Style, Color)
-            minValues = np.minimum(minValues, self.DisplayedModulesPositions[Module['id']] - self.ModulesDiameter)
-            maxValues = np.maximum(maxValues, self.DisplayedModulesPositions[Module['id']] + self.ModulesDiameter)
+            minValues = np.minimum(minValues, self.DisplayedModulesPositions[Module['id']] - 1.5*self.ModulesDiameter)
+            maxValues = np.maximum(maxValues, self.DisplayedModulesPositions[Module['id']] + 1.5*self.ModulesDiameter)
 
-            if Module['id'] == self.ActiveModule['id']:
-                Style = '-'
-            else:
-                Style = ':'
-            self.DrawLinksToChildrens(Module, Style, Color)
+            self.DrawLinksToChildrens(Module, Color)
 
         for nSlot, AvailableSlotAndParent in enumerate(self.AvailablesModulesPositions):
-            if nSlot == self.SelectedAvailableModulePosition:
+            Color = 'grey'
+            if nSlot == self.SelectedAvailableModulePosition or nSlot == self.SelectedAvailableChameleonModulePosition:
                 Style = '-'
                 alpha = 1.
             else:
                 Style = '--'
                 alpha = 0.4
-            self.DrawModule({'nSlot':nSlot, 'id': None}, Style, 'grey', alpha)
+            self.DrawModule({'nSlot':nSlot, 'id': None}, Style, Color, alpha)
             minValues = np.minimum(minValues, AvailableSlotAndParent[0] - self.ModulesDiameter)
             maxValues = np.maximum(maxValues, AvailableSlotAndParent[0] + self.ModulesDiameter)
+        self.DrawAvailableParentsLinks()
+
         Center = (minValues + maxValues)/2.
         MaxAxis = (maxValues - minValues).max()
         minValues = Center - MaxAxis/2.
@@ -443,134 +767,212 @@ class GUI:
             ModulePosition = self.AvailablesModulesPositions[Module['nSlot']][0]
             ModuleName = ''
             ModuleEvFields = []
+            ModuleOutputFields = []
         else:
             ModulePosition = self.DisplayedModulesPositions[Module['id']]
             ModuleName = Module['name']
             ModuleEvFields = Module['module']['ev_fields']
+            ModuleOutputFields = Module['module']['ev_outputs']
 
         DXs = (self.ModulesDiameter/2 * np.array([np.array([-1, -1]), np.array([-1, 1]), np.array([1, 1]), np.array([1, -1])])).tolist()
         for nDX in range(len(DXs)):
             self.DisplayAx.plot([(ModulePosition + DXs[nDX])[0], (ModulePosition + DXs[(nDX+1)%4])[0]], [(ModulePosition + DXs[nDX])[1], (ModulePosition + DXs[(nDX+1)%4])[1]], ls = Style, color = Color, alpha = alpha)
         NameTextPosition = ModulePosition + self.ModulesDiameter/2 * 0.8 * np.array([-1, -1])
         self.DisplayAx.text(NameTextPosition[0], NameTextPosition[1], s = ModuleName, color = Color, alpha = alpha, fontsize = 8)
-        FieldsTextPosition = ModulePosition + self.ModulesDiameter/2 * 1.2 * np.array([1., 0])
-        if not self.ActiveModule is None and Module['id'] == self.ActiveModule['id'] and (ModuleEvFields):
-            self.DisplayAx.text(FieldsTextPosition[0], FieldsTextPosition[1], s = 'Input fields : \n' + ', '.join(ModuleEvFields), bbox={'facecolor': Color, 'alpha': 0.5, 'pad': 5})
+        if not self.ActiveItem is None and type(self.ActiveItem) == dict and Module['id'] == self.ActiveItem['id'] and (ModuleEvFields):
+            if ModulePosition[0] < 0:
+                HAlign = 'right'
+                FieldsTextPosition = ModulePosition + self.ModulesDiameter/2 * 1.2 * np.array([-1., 0])
+            else:
+                HAlign = 'left'
+                FieldsTextPosition = ModulePosition + self.ModulesDiameter/2 * 1.2 * np.array([1., 0])
+            ModuleFieldsString = 'Input fields :\n' + ', '.join(ModuleEvFields)
+            if ModuleOutputFields.keys():
+                ModuleFieldsString = ModuleFieldsString + '\nOutputs :'
+                for handle, Fields in ModuleOutputFields.items():
+                    ModuleFieldsString = ModuleFieldsString + '\n* ' + handle + '\n  ->' + '\n  ->'.join(Fields)
+            self.DisplayAx.text(FieldsTextPosition[0], FieldsTextPosition[1], s = ModuleFieldsString, bbox={'facecolor': Color, 'alpha': 0.5, 'pad': 2}, horizontalalignment=HAlign, verticalalignment='center')
     
-    def DrawLinksToChildrens(self, Module, Style, Color):
+    def DrawAvailableParentsLinks(self):
+        Color = 'grey'
+        Style = ':'
+        for nAvailablePos, AvailablePos in enumerate(self.AvailablesModulesPositions):
+            if AvailablePos[2] is None:
+                continue
+            if not AvailablePos[1] is None:
+                continue
+            if nAvailablePos == self.SelectedAvailableModulePosition:
+                alpha = 1.
+            else:
+                alpha = 0.4
+            ChildrenModule = self.Framework.GetModuleByID(AvailablePos[2])
+            Start = AvailablePos[0] + np.array([0., -1.]) * self.ModulesDiameter/2
+            End = self.DisplayedModulesPositions[AvailablePos[2]] + np.array([-1., 1.]) * self.ModulesDiameter/2 + np.array([1., 0.]) * self.ModulesDiameter * (1.)/(len(ChildrenModule['parent_ids'])+2.)
+            YStep = (Start + End)/2
+            self.DisplayAx.plot([Start[0], Start[0]], [Start[1], YStep[1]], ls = Style, color = Color, alpha = alpha)
+            self.DisplayAx.plot([Start[0], End[0]], [YStep[1], YStep[1]], ls = Style, color = Color, alpha = alpha)
+            self.DisplayAx.plot([End[0], End[0]], [YStep[1], End[1]], ls = Style, color = Color, alpha = alpha)
+
+    def DrawLinksToChildrens(self, Module, ModuleColor):
         HandlersParamsIndexes = framework_abstractor.FindModuleHandlers(Module['module'])
         Links = []
+        nUnused = 0
         for HandleIndex in HandlersParamsIndexes:
             if not Module['parameters'][HandleIndex]:
-                continue
-            if '@' in Module['parameters'][HandleIndex]:
+                AvailableChildren = [nAvailablePos for nAvailablePos, AvailablePos in enumerate(self.AvailablesModulesPositions) if AvailablePos[1] == Module['id']]
+                Links += [(Module['id'], -AvailableChildren[nUnused]-1, 0.5)]
+                nUnused += 1
+
+            elif '@' in Module['parameters'][HandleIndex]:
                 ChildrenName = Module['parameters'][HandleIndex].split('@')[1]
                 for ChildrenModule in self.Framework.Modules:
                     if ChildrenModule['name'] == ChildrenName:
-                        Links += [(self.DisplayedModulesPositions[Module['id']], self.DisplayedModulesPositions[ChildrenModule['id']], (ChildrenModule['parent_ids'].index(Module['id'])+1.)/(len(ChildrenModule['parent_ids'])+1.))]
+                        Links += [(Module['id'], ChildrenModule['id'], (ChildrenModule['parent_ids'].index(Module['id'])+1.+ChildrenModule['module']['has_operator'])/(len(ChildrenModule['parent_ids'])+1.+ChildrenModule['module']['has_operator']))]
 
         for nLink, Link in enumerate(Links):
-            Start = Link[0] + np.array([-1., -1.]) * self.ModulesDiameter/2 +np.array([1., 0.]) * self.ModulesDiameter * (1. + nLink) / (1. + len(Links))
-            End = Link[1] + np.array([-1., 1.]) * self.ModulesDiameter/2 + np.array([1., 0.]) * self.ModulesDiameter * Link[2]
-            YStep = (Start[1] + End[1])/2
-            self.DisplayAx.plot([Start[0], Start[0]], [Start[1], YStep], ls = Style, color = Color)
-            self.DisplayAx.plot([Start[0], End[0]], [YStep, YStep], ls = Style, color = Color)
-            self.DisplayAx.plot([End[0], End[0]], [YStep, End[1]], ls = Style, color = Color)
+            if Link[1] >= 0:
+                Color = ModuleColor
+                LinkTuple = framework_abstractor.GetLinkTuple(Link[0], Link[1])
+                if not self.ActiveItem is None and type(self.ActiveItem) == tuple and self.ActiveItem == framework_abstractor.GetLinkTuple(Link[0], Link[1]):
+                    Style = '-'
+                else:
+                    Style = ':'
 
-    def AddAvailableSlots(self, LastAddedPosition, AddedModule, ParentModuleID):
-        NOutputs = framework_abstractor.CountEventsHandlers(AddedModule)
-        if AddedModule['name'] != 'merge':
-            NInputs = 3
-        PossibleChildrenAdds = [(self.ModulesTilingDistance * np.array([dX, -1.])) for dX in (np.array(list(range(NOutputs))) - NOutputs/2. + 0.5).tolist()]
-        for PossibleAdd in PossibleChildrenAdds:
-            if self.DisplayedModulesPositions.values() and (abs(np.array(self.DisplayedModulesPositions.values()) - (LastAddedPosition + PossibleAdd)) < self.ModulesDiameter).all(axis = 1).any(axis = 0):
-                continue
-            self.AvailablesModulesPositions += [(LastAddedPosition + PossibleAdd, ParentModuleID)]
-    
+                Start = self.DisplayedModulesPositions[Link[0]] + np.array([-1., -1.]) * self.ModulesDiameter/2 +np.array([1., 0.]) * self.ModulesDiameter * (1. + nLink) / (1. + len(Links))
+                End = self.DisplayedModulesPositions[Link[1]] + np.array([-1., 1.]) * self.ModulesDiameter/2 + np.array([1., 0.]) * self.ModulesDiameter * Link[2]
+                YStep = (Start + End)/2
+                self.DisplayAx.plot([Start[0], Start[0]], [Start[1], YStep[1]], ls = Style, color = Color)
+                self.DisplayAx.plot([Start[0], End[0]], [YStep[1], YStep[1]], ls = Style, color = Color)
+                self.DisplayAx.plot([End[0], End[0]], [YStep[1], End[1]], ls = Style, color = Color)
+
+                LinkType = self.Framework.LinksTypes[framework_abstractor.GetLinkTuple(Link[0], Link[1])]
+                if LinkType is None:
+                    LinkType = '?'
+                self.DisplayedLinks[LinkTuple] = self.DisplayAx.text(YStep[0], YStep[1], s = LinkType, zorder = 10, bbox={'facecolor': 'white', 'alpha': 1, 'pad': 2, 'ls': Style}, horizontalalignment='center', verticalalignment='center')
+            else:
+                Style = ':'
+                Color = 'grey'
+                nSlot = -Link[1]-1
+                if nSlot == self.SelectedAvailableModulePosition:
+                    alpha = 1.
+                else:
+                    alpha = 0.4
+                Start = self.DisplayedModulesPositions[Link[0]] + np.array([-1., -1.]) * self.ModulesDiameter/2 +np.array([1., 0.]) * self.ModulesDiameter * (1. + nLink) / (1. + len(Links))
+                End = self.AvailablesModulesPositions[nSlot][0] + np.array([-1., 1.]) * self.ModulesDiameter/2 + np.array([1., 0.]) * self.ModulesDiameter * Link[2]
+                YStep = (Start + End)/2
+                self.DisplayAx.plot([Start[0], Start[0]], [Start[1], YStep[1]], ls = Style, color = Color, alpha = alpha)
+                self.DisplayAx.plot([Start[0], End[0]], [YStep[1], YStep[1]], ls = Style, color = Color, alpha = alpha)
+                self.DisplayAx.plot([End[0], End[0]], [YStep[1], End[1]], ls = Style, color = Color, alpha = alpha)
+
     def _OnParameterChange(self, StringVar):
         ParamIndex = self.CurrentParams.index(StringVar)
-        NAddedParams = len(self._GetAddedParams())
-        self.ActiveModule['parameters'][self.CurrentMinParamDisplayed + ParamIndex - NAddedParams] = StringVar.get()
-        self.DisplayedParams[ParamIndex][1]['foreground'] = self.GetParamDisplayColor(self.CurrentMinParamDisplayed + ParamIndex - NAddedParams)
+        NAddedParams = len(self._GetModuleAddedParams())
+        self.ActiveItem['parameters'][self.CurrentMinParamDisplayed + ParamIndex - NAddedParams] = StringVar.get()
+        self.DisplayedParams[ParamIndex][0]['foreground'] = self.GetParamDisplayColor(self.CurrentMinParamDisplayed + ParamIndex - NAddedParams)
 
     def _OnAddedParameterChange(self, StringVar):
         ParamIndex = self.CurrentParams.index(StringVar)
-        AddedParamName = self._GetAddedParams()[self.CurrentMinParamDisplayed + ParamIndex]['name']
+        AddedParamName = self._GetBlankAddedParams()[self.CurrentMinParamDisplayed + ParamIndex]['name']
         # First check if name is ok and available
         if AddedParamName == 'Name':
             AskedName = StringVar.get()
-            if AskedName == '':
-                self.DisplayedParams[ParamIndex][1]['foreground'] = 'red'
-                return None
-            for Module in self.Framework.Modules:
-                if Module['name'] == AskedName:
-                    self.DisplayedParams[ParamIndex][1]['foreground'] = 'red'
+            if not self._AddedParamValidity(AddedParamName, AskedName):
+                self.DisplayedParams[ParamIndex][0]['foreground'] = 'red'
+                if not self.ActiveItem is None:
                     return None
+            else:
+                self.DisplayedParams[ParamIndex][0]['foreground'] = 'black'
 
-            self.DisplayedParams[ParamIndex][1]['foreground'] = 'black'
+            if not self.ActiveItem is None and type(self.ActiveItem) == dict:
+                PreviousName = self.ActiveItem['name']
+                self.ActiveItem['name'] = AskedName
+                for ParentID in self.ActiveItem['parent_ids']:
+                    if not ParentID is None:
+                        for Module in self.Framework.Modules:
+                            if Module['id'] == ParentID:
+                                for nParam, Param in enumerate(Module['parameters']):
+                                    if '@' in Param and Param.split('@')[1] == PreviousName:
+                                        Module['parameters'][nParam] = '@' + AskedName
+                self.DrawFramework()
+            elif self.ActiveItem is None:
+                self.Framework.Data['name'] = AskedName
+                self.MainWindow.title('Beaver - {0}'.format(AskedName))
 
-            PreviousName = self.ActiveModule['name']
-            self.ActiveModule['name'] = AskedName
-            for ParentID in self.ActiveModule['parent_ids']:
-                if not ParentID is None:
-                    for Module in self.Framework.Modules:
-                        if Module['id'] == ParentID:
-                            for nParam, Param in enumerate(Module['parameters']):
-                                if '@' in Param and Param.split('@')[1] == PreviousName:
-                                    Module['parameters'][nParam] = '@' + AskedName
 
-            self.DrawFramework()
+    def _AddedParamValidity(self, AddedParamName, AddedParamValue):
+        if AddedParamName == 'Name':
+            if AddedParamValue == '':
+                return False
+            for Module in self.Framework.Modules:
+                if Module['name'] == AddedParamValue and (self.ActiveItem is None or type(self.ActiveItem) == tuple or Module['id'] != self.ActiveItem['id']):
+                    return False
+            return True
 
-    def _GetAddedParams(self):
-        return [{'name': 'Name', 'type': '', 'default': self.ActiveModule['name']}]
+    def _GetModuleAddedParams(self):
+        return [{'name': 'Name', 'type': '', 'default': self.ActiveItem['name']}]
+
+    def _GetBlankAddedParams(self):
+        return [{'name': 'Name', 'type': '', 'default': self.Framework.Data['name']}]
+
+    def _GetLinkAddedParams(self):
+        return []
 
     def ChangeDisplayedParams(self, Mod):
         for Trio in self.DisplayedParams:
             for Field in Trio:
                 Field.destroy()
-        if not self.ActiveModule is None:
-            AddedParams = self._GetAddedParams()
-            ModuleParameters = AddedParams + self.ActiveModule['module']['parameters']
-            if Mod == 0:
-                self.CurrentMinParamDisplayed = 0
+        if self.ActiveItem is None:
+            AddedParams = self._GetBlankAddedParams()
+            ModuleParameters = AddedParams
+        elif type(self.ActiveItem) == dict:
+            AddedParams = self._GetModuleAddedParams()
+            ModuleParameters = AddedParams + self.ActiveItem['module']['parameters']
+        elif type(self.ActiveItem) == tuple:
+            AddedParams = self._GetLinkAddedParams()
+            ModuleParameters = AddedParams
+
+        if Mod == 0:
+            self.CurrentMinParamDisplayed = 0
+        else:
+            self.CurrentMinParamDisplayed = max(0, min(len(ModuleParameters) - self.NParamsDisplayed, self.CurrentMinParamDisplayed + Mod))
+        self.DisplayedParams = []
+        self.CurrentParams = []
+        for NParam in range(self.CurrentMinParamDisplayed, min(len(ModuleParameters), self.CurrentMinParamDisplayed + self.NParamsDisplayed)):
+            self.DisplayedParams += [[]]
+            if NParam >= len(AddedParams):
+                Color = self.GetParamDisplayColor(NParam - len(AddedParams))
             else:
-                self.CurrentMinParamDisplayed = max(0, min(len(ModuleParameters) - self.NParamsDisplayed, self.CurrentMinParamDisplayed + Mod))
-            self.DisplayedParams = []
-            self.CurrentParams = []
-            for NParam in range(self.CurrentMinParamDisplayed, min(len(ModuleParameters), self.CurrentMinParamDisplayed + self.NParamsDisplayed)):
-                self.DisplayedParams += [[]]
-                self.DisplayedParams[-1] += [Tk.Label(self.ParamsValuesFrame, text = ModuleParameters[NParam]['name'], width = 20, anchor = Tk.W)]
-                self.DisplayedParams[-1][-1].grid(row=len(self.DisplayedParams)-1, column=0, sticky = Tk.N)
+                Color = self.GetAddedParamDisplayColor(ModuleParameters[NParam]['name'], ModuleParameters[NParam]['default'])
 
-                if NParam >= len(AddedParams):
-                    Color = self.GetParamDisplayColor(NParam - len(AddedParams))
-                else:
-                    Color = self.GetAddedParamDisplayColor(ModuleParameters[NParam]['name'], ModuleParameters[NParam]['default'])
+            self.DisplayedParams[-1] += [Tk.Label(self.ParamsValuesFrame, text = ModuleParameters[NParam]['name'], width = 20, anchor = Tk.W, foreground = Color)]
+            self.DisplayedParams[-1][-1].grid(row=len(self.DisplayedParams)-1, column=0, sticky = Tk.N)
 
-                self.DisplayedParams[-1] += [Tk.Label(self.ParamsValuesFrame, text = ModuleParameters[NParam]['type'], width = 20, anchor = Tk.W, foreground = Color)]
-                self.DisplayedParams[-1][-1].grid(row=len(self.DisplayedParams)-1, column=1, sticky = Tk.N)
+            self.DisplayedParams[-1] += [Tk.Label(self.ParamsValuesFrame, text = ModuleParameters[NParam]['type'], width = 20, anchor = Tk.W)]
+            self.DisplayedParams[-1][-1].grid(row=len(self.DisplayedParams)-1, column=1, sticky = Tk.N)
 
-                self.CurrentParams += [Tk.StringVar(self.MainWindow)]
-                if NParam >= len(AddedParams):
-                    self.CurrentParams[-1].trace("w", lambda name, index, mode, sv=self.CurrentParams[-1]: self._OnParameterChange(sv))
-                else:
-                    self.CurrentParams[-1].trace("w", lambda name, index, mode, sv=self.CurrentParams[-1]: self._OnAddedParameterChange(sv))
+            self.CurrentParams += [Tk.StringVar(self.MainWindow)]
+            if NParam >= len(AddedParams):
+                self.CurrentParams[-1].trace("w", lambda name, index, mode, sv=self.CurrentParams[-1]: self._OnParameterChange(sv))
+            else:
+                self.CurrentParams[-1].trace("w", lambda name, index, mode, sv=self.CurrentParams[-1]: self._OnAddedParameterChange(sv))
 
-                self.DisplayedParams[-1] += [Tk.Entry(self.ParamsValuesFrame, textvariable = self.CurrentParams[-1], width = 40, bg = 'white')]
-                self.DisplayedParams[-1][-1].grid(row=len(self.DisplayedParams)-1, column=2, sticky = Tk.N+Tk.E)
-                if NParam >= len(AddedParams) and self.ActiveModule['parameters'][ModuleParameters[NParam]['param_number']]:
-                    self.CurrentParams[-1].set(self.ActiveModule['parameters'][ModuleParameters[NParam]['param_number']])
-                else:
-                    if 'default' in ModuleParameters[NParam].keys():
-                        self.CurrentParams[-1].set(ModuleParameters[NParam]['default'])
+            self.DisplayedParams[-1] += [Tk.Entry(self.ParamsValuesFrame, textvariable = self.CurrentParams[-1], width = 40, bg = 'white')]
+            self.DisplayedParams[-1][-1].grid(row=len(self.DisplayedParams)-1, column=2, sticky = Tk.N+Tk.E)
+            if NParam >= len(AddedParams) and self.ActiveItem['parameters'][ModuleParameters[NParam]['param_number']]:
+                self.CurrentParams[-1].set(self.ActiveItem['parameters'][ModuleParameters[NParam]['param_number']])
+            else:
+                if 'default' in ModuleParameters[NParam].keys():
+                    self.CurrentParams[-1].set(ModuleParameters[NParam]['default'])
 
     def GetAddedParamDisplayColor(self, ParamName, ParamValue):
-        if ParamName == 'Name':
+        if not self._AddedParamValidity(ParamName, ParamValue):
+            return 'red'
+        else:
             return 'black'
 
     def GetParamDisplayColor(self, NParam):
-        ModuleParameters = self.ActiveModule['module']['parameters']
-        TypeCanBeenChecked, ValueWasChecked = framework_abstractor.CheckParameterValidity(ModuleParameters[NParam]['type'], self.ActiveModule['parameters'][NParam])
+        ModuleParameters = self.ActiveItem['module']['parameters']
+        TypeCanBeenChecked, ValueWasChecked = framework_abstractor.CheckParameterValidity(ModuleParameters[NParam]['type'], self.ActiveItem['parameters'][NParam])
         if not TypeCanBeenChecked:
             Color = 'black'
         else:

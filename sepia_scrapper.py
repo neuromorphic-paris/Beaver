@@ -152,6 +152,8 @@ def ScrapSepiaFile():
         Modules[funcName]['origin'] = 'sepia'
         Modules[funcName]['name'] = funcName
         Modules[funcName]['ev_fields'] = []
+        Modules[funcName]['has_operator'] = False
+        Modules[funcName]['ev_outputs'] = {}
     Types = GetSepiaTypes(Lines)
     return Modules, Types
 

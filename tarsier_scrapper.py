@@ -1,5 +1,6 @@
 import sys
 import os
+import re
 
 TARSIER_FOLDER = 'third_party/tarsier/'
 TARSIER_SOURCE_FOLDER = 'third_party/tarsier/source/'
@@ -68,7 +69,7 @@ def Find_Make_Function(Filename, Lines):
 #    EndLine = ClassStartLine
 #    while nOpen == 0 or nOpen > nClose:
 #        Line = Lines[EndLine]
-#        StudiedPart = Line.split(COMMENT_INDICATOR)[-1]
+#        StudiedPart = Line.split(COMMENT_INDICATOR)[0]
 #        nOpen += StudiedPart.count('{')
 #        nClose += StudiedPart.count('}')
 #        EndLine += 1
@@ -130,16 +131,17 @@ def ExtractEventRequiredFields(Lines, FuncName):
     for nLine, Line in enumerate(Lines):
         if EVENT_OPERATOR_INDICATOR in Line and (not COMMENT_INDICATOR in Line or Line.index(COMMENT_INDICATOR) > Line.index(EVENT_OPERATOR_INDICATOR)):
             StartLine = nLine
-            print "Found oprator at line {0}".format(StartLine)
+            OpeLine = StartLine
+            print "Found operator at line {0}".format(OpeLine)
             break
     if StartLine is None:
         print "Unable to find operator() for function {0}".format(FuncName)
-        return []
+        return [], None
     EndLine = StartLine
     StudiedPart = Line.split(EVENT_OPERATOR_INDICATOR)[1]
     while StudiedPart.count(')') == 0:
         EndLine += 1
-        StudiedPart = StudiedPart + ' ' + Lines[EndLine].split(COMMENT_INDICATOR)[-1]
+        StudiedPart = StudiedPart + ' ' + Lines[EndLine].split(COMMENT_INDICATOR)[0]
     UsefulPart = StudiedPart.split(')')[0].split('(')[1]
     TypeName = ''
     VarName = ''
@@ -152,7 +154,7 @@ def ExtractEventRequiredFields(Lines, FuncName):
                 break
     if not VarName:
         print "Unable to parse event variable name in operator of function {0}".format(FuncName)
-        return []
+        return [], OpeLine
     StartLine = EndLine
     StudiedPart = Lines[StartLine].split('{')[-1]
 
@@ -163,22 +165,61 @@ def ExtractEventRequiredFields(Lines, FuncName):
     EndLine = StartLine + 1
     while nOpen > nClose:
         Line = Lines[EndLine]
-        StudiedPart = Line.split(COMMENT_INDICATOR)[-1]
+        StudiedPart = Line.split(COMMENT_INDICATOR)[0]
         nOpen += StudiedPart.count('{')
         nClose += StudiedPart.count('}')
         EndLine += 1
         if VarName + '.' in StudiedPart:
             for AppearingField in StudiedPart.split(VarName + '.')[1:]:
                 for nChar, Char in enumerate(AppearingField):
-                    if Char not in VARIABLE_CHARS:
+                    if Char.lower() not in VARIABLE_CHARS:
                         break
                 FinalField = AppearingField[:nChar]
+                if FinalField[0] == '_':
+                    FinalField = FinalField[1:]
                 if FinalField not in RequiredFields:
                     RequiredFields += [FinalField]
         if not Line:
             print "Unable to end properly the operator() function definition for {0}".format(FuncName)
-            return RequiredFields
-    return RequiredFields
+            return RequiredFields, OpeLine
+    return RequiredFields, OpeLine
+
+def ExtractOutputFields(Lines, OperatorLine, FuncName, handle_event, event_to = None):
+    StartLine = None
+    HandleIndicator = '_'+handle_event
+    for nLine, Line in enumerate(Lines):
+        if not OperatorLine is None and nLine < OperatorLine:
+            continue
+        if HandleIndicator in Line and (not COMMENT_INDICATOR in Line or Line.index(COMMENT_INDICATOR) > Line.index(HandleIndicator)):
+            if Line.split(HandleIndicator)[1].strip()[0] != '(': # Incase function is named but not called
+                continue
+            StartLine = nLine
+            print "Found event handler {0} at line {1} for function {2}".format(handle_event, StartLine, FuncName)
+            break
+    if StartLine is None:
+        print "Unable to find event handler for function {0}".format(FuncName)
+        return []
+    EndLine = StartLine
+    StudiedPart = Line.split(HandleIndicator)[1]
+
+    nOpen = StudiedPart.count('(')
+    nClose = StudiedPart.count(')')
+    while nOpen == 0 or nOpen > nClose:
+        EndLine += 1
+        if nClose > 2:
+            print "Unusual pattern of event handler for function {0}:".format(FuncName)
+            print StudiedPart
+        Line = Lines[EndLine]
+        StudiedPart = StudiedPart + ' ' + Line.split(COMMENT_INDICATOR)[0]
+        nOpen = StudiedPart.count('(')
+        nClose = StudiedPart.count(')')
+    UsefulPart = StudiedPart.split('(')[-1].split(')')[0]
+
+    OutputTerms = []
+
+    for AppearingField in UsefulPart.split(','):
+        OutputTerms += [AppearingField.strip()]
+    return OutputTerms
 
 def ScrapTarsierFolder():
     Filenames = os.listdir(TARSIER_SOURCE_FOLDER)
@@ -198,7 +239,16 @@ def ScrapTarsierFolder():
                 Modules[ModuleName]['templates'] = ExtractTemplates(Lines, StartLine)
                 Modules[ModuleName]['origin'] = 'tarsier'
                 Modules[ModuleName]['name'] = ModuleName
-                Modules[ModuleName]['ev_fields'] = ExtractEventRequiredFields(Lines, ModuleName)
+                EVFields, OperatorLine = ExtractEventRequiredFields(Lines, ModuleName)
+                if not OperatorLine is None:
+                    Modules[ModuleName]['has_operator'] = True
+                else:
+                    Modules[ModuleName]['has_operator'] = False
+                Modules[ModuleName]['ev_fields'] = EVFields
+                Modules[ModuleName]['ev_outputs'] = {}
+                for Param in Modules[ModuleName]['parameters']:
+                    if re.compile('Handle[a-zA-Z]*').match(Param['type']):
+                        Modules[ModuleName]['ev_outputs'][Param['name']] = ExtractOutputFields(Lines, OperatorLine, ModuleName, Param['name'])
     return Modules
 
 if __name__ == '__main__':
