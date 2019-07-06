@@ -53,6 +53,10 @@ class FrameworkAbstraction:
         ParentModule = self.GetModuleByID(ParentID)
         ChildrenModule = self.GetModuleByID(ChildrenID)
 
+        if not ChildrenModule['module']['has_operator']:
+            self.LogFunction("Can't send events to {0}".format(ChildrenModule['name']))
+            return False
+
         Added = False
         HandlersParamsIndexes = FindModuleHandlers(ParentModule['module'])
         for nParam in HandlersParamsIndexes:

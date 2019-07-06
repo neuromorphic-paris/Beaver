@@ -184,10 +184,19 @@ def ScrapSepiaFile():
         Modules[funcName] = {}
         Modules[funcName]['parameters'] = ExtractArguments(Lines, StartLine)
         Modules[funcName]['templates'] = ExtractTemplates(Lines, StartLine)
+        for Template in Modules[funcName]['templates']:
+            if Template['type'] == 'type': # That is actually sepia::type, also scrapped here.
+                Template['type'] = 'sepia::type'
+            for Parameter in Modules[funcName]['parameters']:
+                if Template['name'] == Parameter['type'].strip('&'):
+                    if Template['default']:
+                        Template['default'] = '#Deduced' + ' (' + Template['default'] + ')'
+                    else:
+                        Template['default'] = '#Deduced'
         Modules[funcName]['origin'] = 'sepia'
         Modules[funcName]['name'] = funcName
         Modules[funcName]['ev_fields'] = []
-        Modules[funcName]['has_operator'] = False
+        Modules[funcName]['has_operator'] = (funcName == 'make_split') # Hardcoded here, cause impossible anyway to get which template is created
         Modules[funcName]['ev_outputs'] = {}
     Types = GetSepiaTypes(Lines)
     return Modules, Types
