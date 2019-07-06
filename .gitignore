@@ -3,3 +3,4 @@ Projects/*
 .*.swo
 test*
 *.pyc
+*.bak

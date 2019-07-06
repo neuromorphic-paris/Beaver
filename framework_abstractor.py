@@ -188,7 +188,7 @@ class CodeWriterClass:
         ProjectDir = self._GetProjectDir(ProjectName)
         if ProjectName in os.listdir(self.PROJECTS_DIRECTORY):
             if not force:
-                ans = raw_input("Found already existing project folder with name '{0}'. Erase ? (y/N) ".format(ProjectName))
+                ans = input("Found already existing project folder with name '{0}'. Erase ? (y/N) ".format(ProjectName))
                 if not ans.lower() == 'y':
                     return False
             os.system('rm -rf '+ ProjectDir)
@@ -230,9 +230,9 @@ class CodeWriterClass:
                     LuaFile.write(3*self.LUA_TAB + AddedField + "\n")
             LuaFile.write(2*self.LUA_TAB + "defines {'SEPIA_COMPILER_WORKING_DIRECTORY="' .. project().location .. '"'}\n")
     
-            for ConfigName, Config in self.SYSTEM_CONFIGS.items():
+            for ConfigName, Config in list(self.SYSTEM_CONFIGS.items()):
                 LuaFile.write(2*self.LUA_TAB + "configuration '{0}'\n".format(ConfigName))
-                for Key, Value in Config.items():
+                for Key, Value in list(Config.items()):
                     if type(Value) == list:
                         LuaFile.write(3*self.LUA_TAB + Key + " {'" + "', '".join(Value) + "'}\n")
                     else:
@@ -276,7 +276,7 @@ CHECKED_TYPES = {_Check_Type_Int: ['int', 'uint\d*_t', 'std::size_t'], _Check_Ty
 def CheckParameterValidity(TypeGiven, Entry): # Return (bool, bool), for (Found parameter and can check it, Given value matches requirements)
     if not Entry:
         return True, False
-    for PythonType, PossibleValues in CHECKED_TYPES.items():
+    for PythonType, PossibleValues in list(CHECKED_TYPES.items()):
         for PossibleValue in PossibleValues:
             if re.compile(PossibleValue).match(TypeGiven):
                 if PythonType(Entry):

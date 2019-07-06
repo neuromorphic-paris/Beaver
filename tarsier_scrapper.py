@@ -39,17 +39,17 @@ def Find_Make_Function(Filename, Lines):
         if not COMMENT_INDICATOR in Line and MAKE_FUNCTION_INDICATOR in Line:
             if Line.split(MAKE_FUNCTION_INDICATOR)[1][:len(ExpectedFunction)] == ExpectedFunction:
                 FoundMakeFunction = True
-                print "Found expected function make at line {0} ({1})".format(nLine + 1, ExpectedFunction)
+                print("Found expected function make at line {0} ({1})".format(nLine + 1, ExpectedFunction))
                 return nLine
             else:
                 FoundMakeFunction = True
                 RHS = Line.split(MAKE_FUNCTION_INDICATOR)[1]
                 if '(' in RHS:
                     RHS = RHS.split('(')[0]
-                print "Unexpected function make at line {0} : ".format(nLine + 1, RHS)
+                print("Unexpected function make at line {0} : ".format(nLine + 1, RHS))
                 return nLine
     if not FoundMakeFunction:
-        print "Unable to find correct {0} function.".format(MAKE_FUNCTION_INDICATOR)
+        print("Unable to find correct {0} function.".format(MAKE_FUNCTION_INDICATOR))
         return None
 
 # We  assume here that only one tarsier class and module exist per file> Otherwise, use following lines as done with sepia
@@ -90,8 +90,8 @@ def ExtractArguments(Lines, StartLine):
         Outs = [RawOut for RawOut in RawOuts if RawOut]
 
         if len(Outs) != 2:
-            print "Unexpected parameters definition : "
-            print Outs
+            print("Unexpected parameters definition : ")
+            print(Outs)
             return []
         Parameters += [{'name': Outs[1], 'type': Outs[0], 'param_number': nParameter, 'default': ''}]
         nParameter += 1
@@ -119,8 +119,8 @@ def ExtractTemplates(Lines, FuncStartLine):
         Outs = [RawOut for RawOut in RawOuts if RawOut]
 
         if len(Outs) != 2:
-            print "Unexpected templates definition between lines {0} and {1}: ".format(StartLine+1, EndLine+1)
-            print Outs
+            print("Unexpected templates definition between lines {0} and {1}: ".format(StartLine+1, EndLine+1))
+            print(Outs)
             return Templates
         Templates += [{'name': Outs[1], 'type' :Outs[0], 'template_number': nTemplate, 'default': ''}]
         nTemplate += 1
@@ -132,10 +132,10 @@ def ExtractEventRequiredFields(Lines, FuncName):
         if EVENT_OPERATOR_INDICATOR in Line and (not COMMENT_INDICATOR in Line or Line.index(COMMENT_INDICATOR) > Line.index(EVENT_OPERATOR_INDICATOR)):
             StartLine = nLine
             OpeLine = StartLine
-            print "Found operator at line {0}".format(OpeLine)
+            print("Found operator at line {0}".format(OpeLine))
             break
     if StartLine is None:
-        print "Unable to find operator() for function {0}".format(FuncName)
+        print("Unable to find operator() for function {0}".format(FuncName))
         return [], None
     EndLine = StartLine
     StudiedPart = Line.split(EVENT_OPERATOR_INDICATOR)[1]
@@ -153,7 +153,7 @@ def ExtractEventRequiredFields(Lines, FuncName):
                 VarName = Part
                 break
     if not VarName:
-        print "Unable to parse event variable name in operator of function {0}".format(FuncName)
+        print("Unable to parse event variable name in operator of function {0}".format(FuncName))
         return [], OpeLine
     StartLine = EndLine
     StudiedPart = Lines[StartLine].split('{')[-1]
@@ -181,7 +181,7 @@ def ExtractEventRequiredFields(Lines, FuncName):
                 if FinalField not in RequiredFields:
                     RequiredFields += [FinalField]
         if not Line:
-            print "Unable to end properly the operator() function definition for {0}".format(FuncName)
+            print("Unable to end properly the operator() function definition for {0}".format(FuncName))
             return RequiredFields, OpeLine
     return RequiredFields, OpeLine
 
@@ -195,10 +195,10 @@ def ExtractOutputFields(Lines, OperatorLine, FuncName, handle_event, event_to = 
             if Line.split(HandleIndicator)[1].strip()[0] != '(': # Incase function is named but not called
                 continue
             StartLine = nLine
-            print "Found event handler {0} at line {1} for function {2}".format(handle_event, StartLine, FuncName)
+            print("Found event handler {0} at line {1} for function {2}".format(handle_event, StartLine, FuncName))
             break
     if StartLine is None:
-        print "Unable to find event handler for function {0}".format(FuncName)
+        print("Unable to find event handler for function {0}".format(FuncName))
         return []
     EndLine = StartLine
     StudiedPart = Line.split(HandleIndicator)[1]
@@ -208,8 +208,8 @@ def ExtractOutputFields(Lines, OperatorLine, FuncName, handle_event, event_to = 
     while nOpen == 0 or nOpen > nClose:
         EndLine += 1
         if nClose > 2:
-            print "Unusual pattern of event handler for function {0}:".format(FuncName)
-            print StudiedPart
+            print("Unusual pattern of event handler for function {0}:".format(FuncName))
+            print(StudiedPart)
         Line = Lines[EndLine]
         StudiedPart = StudiedPart + ' ' + Line.split(COMMENT_INDICATOR)[0]
         nOpen = StudiedPart.count('(')
@@ -229,8 +229,8 @@ def ScrapTarsierFolder():
         ModuleName = Filename.split('.hpp')[0]
         if Filename[0] == '.':
             continue
-        print ""
-        print " -> " + Filename
+        print("")
+        print(" -> " + Filename)
         Lines = GetTarsierCode(Filename)
         if Lines:
             StartLine = Find_Make_Function(Filename, Lines)

@@ -6,13 +6,12 @@ from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolb
 from matplotlib.figure import Figure
 from matplotlib.patches import Rectangle
 
-import Tkinter as Tk
-from PIL import Image, ImageTk
-import ttk
-import ScrolledText
-import tkMessageBox
-import tkFileDialog
-import tkFont
+import tkinter as Tk
+from tkinter import ttk
+from tkinter import scrolledtext as ScrolledText
+from tkinter import messagebox as MessageBox
+from tkinter import filedialog as FileDialog
+from tkinter import font as tkFont
 
 import os
 import json
@@ -36,7 +35,7 @@ CHAMELEON_UNSUPPORTED_MODULES = []
 UNSUPPORTED_MODULES = TARSIER_UNSUPPORTED_MODULES + SEPIA_UNSUPPORTED_MODULES + CHAMELEON_UNSUPPORTED_MODULES
 
 def about_command():
-    label = tkMessageBox.showinfo("About", "Tarsier code geneerator\nWork In Progress, be kind\nPlease visit https://github.com/neuromorphic-paris/")
+    label = MessageBox.showinfo("About", "Tarsier code geneerator\nWork In Progress, be kind\nPlease visit https://github.com/neuromorphic-paris/")
 
         
 class GUI:
@@ -49,15 +48,15 @@ class GUI:
         ChameleonModules = chameleon_scrapper.ScrapChameleonFolder()
 
         self.AvailableModules = {}
-        for ModuleName, Module in TarsierModules.items():
+        for ModuleName, Module in list(TarsierModules.items()):
             self.AvailableModules[ModuleName] = Module
-        for ModuleName, Module in SepiaModules.items():
+        for ModuleName, Module in list(SepiaModules.items()):
             self.AvailableModules[ModuleName] = Module
-        for ModuleName, Module in ChameleonModules.items():
+        for ModuleName, Module in list(ChameleonModules.items()):
             self.AvailableModules[ModuleName] = Module
 
         self.AvailableTypes = {}
-        for TypeName, Type in SepiaTypes.items():
+        for TypeName, Type in list(SepiaTypes.items()):
             self.AvailableTypes[TypeName] = Type
 
         self.UserDefinedVariableTypes = ['Struct', 'Packed struct', 'Lambda Function']
@@ -86,21 +85,21 @@ class GUI:
 
         tarsiermenu = Tk.Menu(insertmenu)
         insertmenu.add_cascade(label = "Tarsier", menu = tarsiermenu)
-        for Module in TarsierModules.keys():
+        for Module in list(TarsierModules.keys()):
             if Module not in UNSUPPORTED_MODULES:
                 tarsiermenu.add_command(label=Module, command=partial(self.AddModule, str(Module)))
         chameleonmenu = Tk.Menu(insertmenu)
         insertmenu.add_cascade(label = "Chameleon", menu = chameleonmenu)
-        for Module in ChameleonModules.keys():
+        for Module in list(ChameleonModules.keys()):
             if Module not in UNSUPPORTED_MODULES:
                 chameleonmenu.add_command(label=Module, command=partial(self.AddModule, str(Module)))
         sepiamenu = Tk.Menu(insertmenu)
         insertmenu.add_cascade(label = "Sepia", menu = sepiamenu)
-        for Module in SepiaModules.keys():
+        for Module in list(SepiaModules.keys()):
             if Module not in UNSUPPORTED_MODULES:
                 sepiamenu.add_command(label=Module, command=partial(self.AddModule, str(Module)))
         sepiamenu.add_separator()
-        for Type in SepiaTypes.keys():
+        for Type in list(SepiaTypes.keys()):
             sepiamenu.add_command(label=Type, command=lambda : self.SetType(Type))
 
 
@@ -137,11 +136,11 @@ class GUI:
         self.DisplayCodeLinkFrame.grid(row = 0, column = 1)
         self.DisplayWorkFrame = Tk.Frame(self.DisplayCodeLinkFrame, bd = 4, relief='groove')
         self.DisplayWorkFrame.grid(row = 0, column = 0)
-        ErasePicture = ImageTk.PhotoImage(file = 'Icons/erase.png')
+        ErasePicture = Tk.PhotoImage(file = 'Icons/erase.png')
         self.RemoveModuleButton = Tk.Button(self.DisplayWorkFrame, image=ErasePicture, command = self.RemoveModule)
         self.RemoveModuleButton.image = ErasePicture
         self.RemoveModuleButton.grid(row = 0, column = 0)
-        RoutePicture = ImageTk.PhotoImage(file = 'Icons/route.png')
+        RoutePicture = Tk.PhotoImage(file = 'Icons/route.png')
         self.RouteModuleButton = Tk.Button(self.DisplayWorkFrame, image=RoutePicture, command = self.RouteModule)
         self.RouteModuleButton.image = RoutePicture
         self.RouteModuleButton.grid(row = 1, column = 0)
@@ -158,7 +157,7 @@ class GUI:
 
         self.CodeFrame = Tk.Frame(self.MainWindow)
         self.CodeFrame.grid(row = 0, column = 2)
-        self.CurrentCodeFile = self.Framework.Files.keys()[0]
+        self.CurrentCodeFile = list(self.Framework.Files.keys())[0]
         self.CurrentCodeType = self.Framework.Files[self.CurrentCodeFile]['type']
         self.CodeFileVar = Tk.StringVar(self.MainWindow)
         self.CodeFileVar.set(self.CurrentCodeFile)
@@ -208,7 +207,7 @@ class GUI:
         self.MainWindow.mainloop()
 
     def _on_closing(self):
-        if tkMessageBox.askokcancel("Quit", "Do you really want to quit?"):
+        if MessageBox.askokcancel("Quit", "Do you really want to quit?"):
             self.MainWindow.quit()
             self.MainWindow.destroy()
 
@@ -219,18 +218,17 @@ class GUI:
         for Module in self.Framework.Modules:
             if (abs(self.DisplayedModulesPositions[Module['id']] - Click) < self.ModulesDiameter/2.).all():
                 self.ActiveItem = Module
-		self.DrawFramework()
+                self.DrawFramework()
                 self.ChangeDisplayedParams(0)
                 if not self.WaitingForRoute is None:
                     self.RouteModule()
-                print Module
                 return None
         self.WaitingForRoute = None
-        for LinkTuple, LinkText in self.DisplayedLinks.items():
+        for LinkTuple, LinkText in list(self.DisplayedLinks.items()):
             Contains, AddDict = LinkText.contains(event)
             if Contains:
                 self.ActiveItem = LinkTuple
-		self.DrawFramework()
+                self.DrawFramework()
                 self.ChangeDisplayedParams(0)
                 return None
 
@@ -240,18 +238,18 @@ class GUI:
                     self.SelectedAvailableChameleonModulePosition = nPosition
                 else:
                     self.SelectedAvailableModulePosition = nPosition
-		self.DrawFramework()
+                self.DrawFramework()
                 self.ChangeDisplayedParams(0)
                 return None
         self.ActiveItem = None
-	self.DrawFramework()
+        self.DrawFramework()
         self.ChangeDisplayedParams(0)
 
     def GenerateEmptyFramework(self):
         if self.Framework.Modules:
-            if not tkMessageBox.askokcancel("New", "Unsaved framework. Erase anyway ?"):
+            if not MessageBox.askokcancel("New", "Unsaved framework. Erase anyway ?"):
                 return None
-        with tkFileDialog.asksaveasfile(mode='w', initialdir = PROJECTS_DIR, defaultextension='.json', title = "New project", filetypes=[("JSON","*.json")]) as file:
+        with FileDialog.asksaveasfile(mode='w', initialdir = PROJECTS_DIR, defaultextension='.json', title = "New project", filetypes=[("JSON","*.json")]) as file:
             if file is None:
                 return None
             self.Framework = framework_abstractor.FrameworkAbstraction(LogFunction = self.Log)
@@ -288,10 +286,10 @@ class GUI:
 
     def saveas_command(self):
         self.RegisterCurrentCodePad()
-        with tkFileDialog.asksaveasfile(mode='w', initialdir = PROJECTS_DIR, initialfile = self.Framework.Data['name'], defaultextension='.json', title = "Save as...", filetypes=[("JSON","*.json")]) as file:
+        with FileDialog.asksaveasfile(mode='w', initialdir = PROJECTS_DIR, initialfile = self.Framework.Data['name'], defaultextension='.json', title = "Save as...", filetypes=[("JSON","*.json")]) as file:
             if not file is None:
                 NewName =  file.name.split('/')[-1].split('.json')[0]
-                if not self.Framework.Data['name'] or (NewName != self.Framework.Data['name'] and tkMessageBox.askyesno("Name changed", "Do you want to change project name from \n{0} \nto {1} ?".format(self.Framework.Data['name'], NewName))):
+                if not self.Framework.Data['name'] or (NewName != self.Framework.Data['name'] and MessageBox.askyesno("Name changed", "Do you want to change project name from \n{0} \nto {1} ?".format(self.Framework.Data['name'], NewName))):
                     self.Framework.Data['name'] = NewName
                     self.MainWindow.title('Beaver - {0}'.format(self.Framework.Data['name']))
 
@@ -301,7 +299,7 @@ class GUI:
         self.ChangeDisplayedParams(0)
         
     def open_command(self):
-        with tkFileDialog.askopenfile(parent=self.MainWindow,mode='rb', initialdir = PROJECTS_DIR, title='Open...', defaultextension='.json', filetypes=[("JSON","*.json")]) as file:
+        with FileDialog.askopenfile(parent=self.MainWindow,mode='rb', initialdir = PROJECTS_DIR, title='Open...', defaultextension='.json', filetypes=[("JSON","*.json")]) as file:
             if file != None:
                 Data = json.load(file)
                 self.Framework = framework_abstractor.FrameworkAbstraction(Data, self.Log)
@@ -325,12 +323,12 @@ class GUI:
                 try:
                     self.SetDisplayedCodefile('Documentation', SaveCurrentFile = False)
                 except:
-                    self.SetDisplayedCodefile(self.Framework.Files.keys()[0], SaveCurrentFile = False)
+                    self.SetDisplayedCodefile(list(self.Framework.Files.keys())[0], SaveCurrentFile = False)
         self.DrawFramework()
         self.ChangeDisplayedParams(0)
 
     def RegisterCurrentCodePad(self):
-        if self.CurrentCodeFile in self.TempFiles.keys():
+        if self.CurrentCodeFile in list(self.TempFiles.keys()):
             return None
         CurrentText = self.CodePad.get('1.0', Tk.END+'-1c')
         self.Framework.Files[self.CurrentCodeFile]['data'] = CurrentText
@@ -376,7 +374,7 @@ class GUI:
 
         self.Log("Adding " + AskedModuleName)
         Tile = self.AvailablesModulesPositions[self.SelectedAvailableChameleonModulePosition][1:]
-        if Tile not in self.Framework.ChameleonTiles.keys():
+        if Tile not in list(self.Framework.ChameleonTiles.keys()):
             self.Framework.ChameleonTiles[Tile] = []
         if self.AutoAddBGR and AddBGC:
             FoundBGC = False
@@ -423,27 +421,27 @@ class GUI:
             
             NOutputs = len([Module['parameters'][nParam] for nParam in framework_abstractor.FindModuleHandlers(ModuleType) if not Module['parameters'][nParam]])
             if NOutputs:
-                if ModulePosition[1] - self.ModulesTilingDistance not in AskedSlotsByHeight.keys():
+                if ModulePosition[1] - self.ModulesTilingDistance not in list(AskedSlotsByHeight.keys()):
                     AskedSlotsByHeight[ModulePosition[1] - self.ModulesTilingDistance] = []
-                if ModulePosition[1] - self.ModulesTilingDistance not in TakenSlotsByHeight.keys():
+                if ModulePosition[1] - self.ModulesTilingDistance not in list(TakenSlotsByHeight.keys()):
                     TakenSlotsByHeight[ModulePosition[1] - self.ModulesTilingDistance] = []
                 AskedSlotsByHeight[ModulePosition[1] - self.ModulesTilingDistance] += [(ModulePosition[0], ModuleID, -1)] * NOutputs
             
             if ModuleType['has_operator']:
-                if ModulePosition[1] + self.ModulesTilingDistance not in AskedSlotsByHeight.keys():
+                if ModulePosition[1] + self.ModulesTilingDistance not in list(AskedSlotsByHeight.keys()):
                     AskedSlotsByHeight[ModulePosition[1] + self.ModulesTilingDistance] = []
-                if ModulePosition[1] + self.ModulesTilingDistance not in TakenSlotsByHeight.keys():
+                if ModulePosition[1] + self.ModulesTilingDistance not in list(TakenSlotsByHeight.keys()):
                     TakenSlotsByHeight[ModulePosition[1] + self.ModulesTilingDistance] = []
                 AskedSlotsByHeight[ModulePosition[1] + self.ModulesTilingDistance] += [(ModulePosition[0], -1, ModuleID)]
 
-            if ModulePosition[1] not in TakenSlotsByHeight.keys():
+            if ModulePosition[1] not in list(TakenSlotsByHeight.keys()):
                 TakenSlotsByHeight[ModulePosition[1]] = []
-            if ModulePosition[1] not in AskedSlotsByHeight.keys():
+            if ModulePosition[1] not in list(AskedSlotsByHeight.keys()):
                 AskedSlotsByHeight[ModulePosition[1]] = []
             TakenSlotsByHeight[ModulePosition[1]] += [(ModulePosition[0], ModuleID, ModuleID)]
 
         MinX = np.inf
-        for Height in AskedSlotsByHeight.keys():
+        for Height in list(AskedSlotsByHeight.keys()):
             FinalLine = []
             Line = AskedSlotsByHeight[Height] + TakenSlotsByHeight[Height]
             for nIndex, Index in enumerate(np.argsort(np.array(Line)[:,0]).tolist()):
@@ -472,30 +470,27 @@ class GUI:
         self.RegenerateChameleonAvailableSlots()
 
     def RegenerateChameleonAvailableSlots(self):
-        print "Adding Chameleon Tiles"
         AddedTiles = []
-        if not self.Framework.ChameleonTiles.keys():
+        if not list(self.Framework.ChameleonTiles.keys()):
             AddedTiles += [(0,0)]
-        for Tile, IDs in self.Framework.ChameleonTiles.items():
+        for Tile, IDs in list(self.Framework.ChameleonTiles.items()):
             for nModule, ModuleID in enumerate(IDs):
                 self.DisplayedModulesPositions[ModuleID] = self.GetChameleonModulePosition(Tile, nModule)
             self.AvailablesModulesPositions += [(self.GetChameleonModulePosition(Tile, nModule+1), Tile[0], Tile[1])]
 
             NextTiles = [(Tile[0], Tile[1] + 1), (Tile[0] + 1, Tile[1]), (Tile[0] + 1, Tile[1] + 1)]
             for NextTile in NextTiles:
-                if NextTile not in self.Framework.ChameleonTiles.keys() and NextTile not in AddedTiles:
+                if NextTile not in list(self.Framework.ChameleonTiles.keys()) and NextTile not in AddedTiles:
                     AddedTiles += [NextTile]
 
-        print AddedTiles
         for Tile in AddedTiles:
             self.AvailablesModulesPositions += [(self.GetChameleonModulePosition(Tile, 0), Tile[0], Tile[1])]
-        print self.AvailablesModulesPositions
     
     def GetChameleonModulePosition(self, Tile, nModule):
-        if not self.Framework.ChameleonTiles.values():
+        if not list(self.Framework.ChameleonTiles.values()):
             TilesSizes = 0
         else:
-            TilesSizes = max([len(IDs) for IDs in self.Framework.ChameleonTiles.values()])
+            TilesSizes = max([len(IDs) for IDs in list(self.Framework.ChameleonTiles.values())])
         return self.ChameleonInitialTilePosition + np.array([Tile[0] * (TilesSizes*self.ModulesDiameter + self.ModulesTilingDistance), - Tile[1] * self.ModulesTilingDistance/1.5]) + nModule * np.array([self.ModulesDiameter, 0])
 
     def RemoveModule(self):
@@ -529,7 +524,6 @@ class GUI:
             self.Log("Removed link from {0} to {1}".format(self.Framework.GetModuleByID(ParentID)['name'], self.Framework.GetModuleByID(ChildID)['name']))
 
     def RouteModule(self):
-        print "Route called"
         if self.ActiveItem is None or type(self.ActiveItem) != dict:
             return None
         
@@ -608,7 +602,7 @@ class GUI:
 
     def RemoveLink(self, ParentID, ChildrenID):
         LinkTuple = framework_abstractor.GetLinkTuple(ParentID, ChildrenID)
-        if LinkTuple in self.OffsetLinks.keys():
+        if LinkTuple in list(self.OffsetLinks.keys()):
             AllDescendance = self.GetDescendance(ChildrenID)
             for ID in AllDescendance:
                 self.DisplayedModulesPositions[ID] = self.DisplayedModulesPositions[ID] - np.array([0., -1.]) * self.OffsetLinks[LinkTuple]
@@ -643,9 +637,7 @@ class GUI:
         self.SetDisplayedCodefile(LuaFilename)
 
     def GenerateBinary(self):
-        print self.AvailablesModulesPositions
-        print self.SelectedAvailableModulePosition
-        print self.SelectedAvailableChameleonModulePosition
+        None
 
     def DisplayModuleCode(self):
         if not self.ActiveItem is None and type(self.ActiveItem) == dict:
@@ -677,7 +669,7 @@ class GUI:
     def UpdateCodeMenu(self):
         Menu = self.CodeFileMenu['menu']
         Menu.delete(0, "end") 
-        for FileName in self.Framework.Files.keys():
+        for FileName in list(self.Framework.Files.keys()):
             Menu.add_command(label = FileName, command = partial(self.SetDisplayedCodefile, FileName))
 
     def SetDisplayedCodefile(self, Codefile, SaveCurrentFile = True):
@@ -686,7 +678,7 @@ class GUI:
         self.CodePad.delete('1.0', Tk.END)
         self.CurrentCodeFile = Codefile
         self.CodeFileVar.set(self.CurrentCodeFile)
-        if self.CurrentCodeFile in self.Framework.Files.keys():
+        if self.CurrentCodeFile in list(self.Framework.Files.keys()):
             self.CodePad.insert(Tk.END, self.Framework.Files[self.CurrentCodeFile]['data'])
             self.CurrentCodeType = self.Framework.Files[self.CurrentCodeFile]['type']
         else:
@@ -757,7 +749,7 @@ class GUI:
         #self.Log("Done.")
         
     def DrawModule(self, Module, Style, Color, alpha = 1.):
-        if 'nSlot' in Module.keys():
+        if 'nSlot' in list(Module.keys()):
             ModulePosition = self.AvailablesModulesPositions[Module['nSlot']][0]
             ModuleName = ''
             ModuleEvFields = []
@@ -781,9 +773,9 @@ class GUI:
                 HAlign = 'left'
                 FieldsTextPosition = ModulePosition + self.ModulesDiameter/2 * 1.2 * np.array([1., 0])
             ModuleFieldsString = 'Input fields :\n' + ', '.join(ModuleEvFields)
-            if ModuleOutputFields.keys():
+            if list(ModuleOutputFields.keys()):
                 ModuleFieldsString = ModuleFieldsString + '\nOutputs :'
-                for handle, Fields in ModuleOutputFields.items():
+                for handle, Fields in list(ModuleOutputFields.items()):
                     ModuleFieldsString = ModuleFieldsString + '\n* ' + handle + '\n  ->' + '\n  ->'.join(Fields)
             self.DisplayAx.text(FieldsTextPosition[0], FieldsTextPosition[1], s = ModuleFieldsString, bbox={'facecolor': Color, 'alpha': 0.5, 'pad': 2}, horizontalalignment=HAlign, verticalalignment='center')
     
@@ -988,13 +980,13 @@ class GUI:
                 if self.ActiveItem['parameters'][Field['param_number']]:
                     self.CurrentParams[-1].set(self.ActiveItem['parameters'][Field['param_number']])
                 else:
-                    if 'default' in Field.keys():
+                    if 'default' in list(Field.keys()):
                         self.CurrentParams[-1].set(Field['default'])
             elif Field in ModuleTemplates:
                 if self.ActiveItem['templates'][Field['template_number']]:
                     self.CurrentParams[-1].set(self.ActiveItem['template'][Field['template_number']])
                 else:
-                    if 'default' in Field.keys():
+                    if 'default' in list(Field.keys()):
                         self.CurrentParams[-1].set(Field['default'])
 
     def GetAddedParamDisplayColor(self, ParamName, ParamValue):

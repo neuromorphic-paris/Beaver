@@ -57,7 +57,7 @@ def GetSepiaTypes(Lines):
             StudiedPart = ''
             for nLine, Line in enumerate(Lines):
                 if Definition in Line and (COMMENT_INDICATOR not in Line or Line.index(COMMENT_INDICATOR) > Line.index(Definition)):
-                    print "Found definition of type {0} at line {1}".format(RawType.strip(), nLine)
+                    print("Found definition of type {0} at line {1}".format(RawType.strip(), nLine))
                     StudiedPart = StudiedPart + Line.split(COMMENT_INDICATOR)[0] + '\n'
                     continue
                 if StudiedPart:
@@ -120,18 +120,18 @@ def ExtractArguments(Lines, StartLine):
                 Parameters += [{'name': Outs[1], 'type': Outs[0], 'param_number': nParameter, 'default' : DefaultParameter.strip()}]
                 nParameter += 1
             else:
-                print "Unexpected parameters definition : "
-                print Outs
-                print "Used part :"
-                print UsefulPart
-                print ""
+                print("Unexpected parameters definition : ")
+                print(Outs)
+                print("Used part :")
+                print(UsefulPart)
+                print("")
                 return []
         else:
-            print "Unexpected parameters definition : "
-            print Outs
-            print "Used part :"
-            print UsefulPart
-            print ""
+            print("Unexpected parameters definition : ")
+            print(Outs)
+            print("Used part :")
+            print(UsefulPart)
+            print("")
             return []
     return Parameters
 
@@ -167,12 +167,12 @@ def ExtractTemplates(Lines, FuncStartLine):
                 Templates += [{'name': Outs[1], 'type': Outs[0], 'template_number': nTemplate, 'default' : DefaultParameter.strip()}]
                 nTemplate += 1
             else:
-                print "Unexpected templates definition between lines {0} and {1}: ".format(StartLine+1, EndLine+1)
-                print Outs
+                print("Unexpected templates definition between lines {0} and {1}: ".format(StartLine+1, EndLine+1))
+                print(Outs)
                 return Templates
         else:
-            print "Unexpected templates definition between lines {0} and {1}: ".format(StartLine+1, EndLine+1)
-            print Outs
+            print("Unexpected templates definition between lines {0} and {1}: ".format(StartLine+1, EndLine+1))
+            print(Outs)
             return Templates
     return Templates
 

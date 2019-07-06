@@ -48,10 +48,10 @@ def FindPushAndExtractRequiredFields(Lines, FuncName):
         if PUSHEVENT_INDICATOR in Line and (not COMMENT_INDICATOR in Line or Line.index(COMMENT_INDICATOR) > Line.index(PUSHEVENT_INDICATOR)):
             StartLine = nLine
             OpeLine = StartLine
-            print "Found push operator at line {0}".format(OpeLine)
+            print("Found push operator at line {0}".format(OpeLine))
             break
     if StartLine is None:
-        print "Unable to find push operator for function {0}".format(FuncName)
+        print("Unable to find push operator for function {0}".format(FuncName))
         return [], None
     EndLine = StartLine
     StudiedPart = Line.split(PUSHEVENT_INDICATOR)[1]
@@ -69,7 +69,7 @@ def FindPushAndExtractRequiredFields(Lines, FuncName):
                 VarName = Part
                 break
     if not VarName:
-        print "Unable to parse event variable name in push operator of function {0}".format(FuncName)
+        print("Unable to parse event variable name in push operator of function {0}".format(FuncName))
         return [], OpeLine
     StartLine = EndLine
     StudiedPart = Lines[StartLine].split('{')[-1]
@@ -97,7 +97,7 @@ def FindPushAndExtractRequiredFields(Lines, FuncName):
                     
                     RequiredFields += [FinalField]
         if not Line:
-            print "Unable to end properly push operator definition for {0}".format(FuncName)
+            print("Unable to end properly push operator definition for {0}".format(FuncName))
             return RequiredFields, OpeLine
     return RequiredFields, OpeLine
 
@@ -108,11 +108,11 @@ def ScrapChameleonFolder():
         ModuleName = Filename.split('.hpp')[0]
         if Filename[0] == '.':
             continue
-        print ""
-        print " -> " + Filename
+        print("")
+        print(" -> " + Filename)
         Lines = GetChameleonClassCode(Filename)
         if not Lines['renderer']:
-            print "No renderer class here"
+            print("No renderer class here")
         if Lines['renderer']:
             Modules[ModuleName] = {}
             Modules[ModuleName]['parameters'] = []
