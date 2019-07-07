@@ -15,6 +15,8 @@ SEPIA_TYPES_INDICATOR = "enum class type"
 SEPIA_TYPES_DEFINITION_LINE = "struct event<type::{0}>"
 TEMPLATE_SCRAPED_FUNCTIONS = ['make_split', 'join_observable', 'make_observable']
 
+EVENT_TO_INDICATOR = 'EventTo'
+
 def GetSepiaCode(Full = False):
     with open(SEPIA_SOURCE_FOLDER + 'sepia.hpp', 'r') as f:
         Lines = []
@@ -198,6 +200,7 @@ def ScrapSepiaFile():
         Modules[funcName]['ev_fields'] = []
         Modules[funcName]['has_operator'] = (funcName == 'make_split') # Hardcoded here, cause impossible anyway to get which template is created
         Modules[funcName]['ev_outputs'] = {}
+        Modules[funcName]['needs_lambda'] = False
     Types = GetSepiaTypes(Lines)
     return Modules, Types
 

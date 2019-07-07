@@ -85,17 +85,17 @@ class GUI:
 
         tarsiermenu = Tk.Menu(insertmenu)
         insertmenu.add_cascade(label = "Tarsier", menu = tarsiermenu)
-        for Module in list(TarsierModules.keys()):
+        for Module in sorted(TarsierModules.keys()):
             if Module not in UNSUPPORTED_MODULES:
                 tarsiermenu.add_command(label=Module, command=partial(self.AddModule, str(Module)))
         chameleonmenu = Tk.Menu(insertmenu)
         insertmenu.add_cascade(label = "Chameleon", menu = chameleonmenu)
-        for Module in list(ChameleonModules.keys()):
+        for Module in sorted(ChameleonModules.keys()):
             if Module not in UNSUPPORTED_MODULES:
                 chameleonmenu.add_command(label=Module, command=partial(self.AddModule, str(Module)))
         sepiamenu = Tk.Menu(insertmenu)
         insertmenu.add_cascade(label = "Sepia", menu = sepiamenu)
-        for Module in list(SepiaModules.keys()):
+        for Module in sorted(SepiaModules.keys()):
             if Module not in UNSUPPORTED_MODULES:
                 sepiamenu.add_command(label=Module, command=partial(self.AddModule, str(Module)))
         sepiamenu.add_separator()
@@ -153,6 +153,7 @@ class GUI:
 
         self.TempFiles = {}
 
+        self.DefaultFile = 'Documentation'
         self.CodeFrame = Tk.Frame(self.MainWindow)
         self.CodeFrame.grid(row = 0, column = 2)
         self.CurrentCodeFile = list(self.Framework.Files.keys())[0]
@@ -318,7 +319,7 @@ class GUI:
                 self.ActiveItem = None
                 self.ChangeDisplayedParams(0)
                 try:
-                    self.SetDisplayedCodefile('Documentation', SaveCurrentFile = False)
+                    self.SetDisplayedCodefile(self.DefaultFile, SaveCurrentFile = False)
                 except:
                     self.SetDisplayedCodefile(list(self.Framework.Files.keys())[0], SaveCurrentFile = False)
         self.DrawFramework()
@@ -438,7 +439,7 @@ class GUI:
             TakenSlotsByHeight[ModulePosition[1]] += [(ModulePosition[0], ModuleID, ModuleID)]
 
         MinX = np.inf
-        for Height in list(AskedSlotsByHeight.keys()):
+        for Height in sorted(AskedSlotsByHeight.keys()):
             FinalLine = []
             Line = AskedSlotsByHeight[Height] + TakenSlotsByHeight[Height]
             for nIndex, Index in enumerate(np.argsort(np.array(Line)[:,0]).tolist()):
@@ -593,9 +594,10 @@ class GUI:
         return AllDescendance
 
     def AddLink(self, ParentID, ChildrenID):
-        Success = self.Framework.AddLink(ParentID, ChildrenID)
-        if not Success:
-            return None
+        CreatedFile = self.Framework.AddLink(ParentID, ChildrenID)
+        if CreatedFile:
+            self.UpdateCodeMenu()
+            self.SetDisplayedCodefile(CreatedFile)
 
     def RemoveLink(self, ParentID, ChildrenID):
         LinkTuple = framework_abstractor.GetLinkTuple(ParentID, ChildrenID)
@@ -604,19 +606,27 @@ class GUI:
             for ID in AllDescendance:
                 self.DisplayedModulesPositions[ID] = self.DisplayedModulesPositions[ID] - np.array([0., -1.]) * self.OffsetLinks[LinkTuple]
             del self.OffsetLinks[LinkTuple]
-        Success = self.Framework.RemoveLink(ParentID, ChildrenID)
+        FileRemoved = self.Framework.RemoveLink(ParentID, ChildrenID)
+        if FileRemoved:
+            self.UpdateCodeMenu()
+            self.SetDisplayedCodefile(self.DefaultFile, SaveCurrentFile = False)
 
     def AddNewType(self, Type):
-        TmpName = Type
-        if TmpName in self.Framework.UserWrittenCode:
-            self.Log("Already underdefined type {0} in this project. Fill in a name first before defining a new one.".format(Type))
-            self.SetDisplayedCodefile(TmpName)
-            return None
-        self.Framework.UserWrittenCode += [TmpName]
-        self.Framework.Files[TmpName] = {'data': GenerateNewType(Type), 'type': Type}
+        FileName = self.GenerateNewType(Type)
 
         self.UpdateCodeMenu()
-        self.SetDisplayedCodefile(TmpName)
+        self.SetDisplayedCodefile(FileName)
+
+    def GenerateNewType(self, Type):
+        if Type == 'Struct':
+            None
+            #File = 'struct {\n};'
+        elif Type == 'Packed struct':
+            None
+            #File = 'SEPIA_PACK(struct {\n});'
+        elif Type == 'Lambda Function':
+            FileName = self.Framework.GenerateNewLambdaFunction()
+        return FileName
 
     def SetType(self, Type):
         None
@@ -774,7 +784,7 @@ class GUI:
                 ModuleFieldsString = ModuleFieldsString + '\nOutputs :'
                 for handle, Fields in list(ModuleOutputFields.items()):
                     ModuleFieldsString = ModuleFieldsString + '\n* ' + handle + '\n  ->' + '\n  ->'.join(Fields)
-            self.DisplayAx.text(FieldsTextPosition[0], FieldsTextPosition[1], s = ModuleFieldsString, bbox={'facecolor': Color, 'alpha': 0.5, 'pad': 2}, horizontalalignment=HAlign, verticalalignment='center')
+            self.DisplayAx.text(FieldsTextPosition[0], FieldsTextPosition[1], s = ModuleFieldsString, bbox={'facecolor': Color, 'alpha': 1, 'pad': 2}, horizontalalignment=HAlign, verticalalignment='center', zorder=10)
     
     def DrawAvailableParentsLinks(self):
         Color = 'grey'
@@ -829,9 +839,11 @@ class GUI:
                 self.DisplayAx.plot([End[0], End[0]], [YStep[1], End[1]], ls = Style, color = Color)
 
                 LinkType = self.Framework.LinksTypes[framework_abstractor.GetLinkTuple(Link[0], Link[1])]
-                if LinkType is None:
-                    LinkType = '?'
-                self.DisplayedLinks[LinkTuple] = self.DisplayAx.text(YStep[0], YStep[1], s = LinkType, zorder = 10, bbox={'facecolor': 'white', 'alpha': 1, 'pad': 2, 'ls': Style}, horizontalalignment='center', verticalalignment='center')
+                LinkStr = ''
+                if LinkType[0]:
+                    LinkStr += LinkType[0] + ' -> '
+                LinkStr += LinkType[1]
+                self.DisplayedLinks[LinkTuple] = self.DisplayAx.text(YStep[0], YStep[1], s = LinkStr, zorder = 5, bbox={'facecolor': 'white', 'alpha': 1, 'pad': 2, 'ls': Style}, horizontalalignment='center', verticalalignment='center')
             else:
                 Style = ':'
                 Color = 'grey'
@@ -878,6 +890,8 @@ class GUI:
                 self.DrawFramework()
             elif self.ActiveItem is None:
                 self.Framework.Data['name'] = AskedName
+                if not AskedName:
+                    AskedName = 'Untitled'
                 self.MainWindow.title('Beaver - {0}'.format(AskedName))
 
     def _OnTemplateChange(self, StringVar, TemplateIndex, DisplayIndex):
@@ -1029,14 +1043,5 @@ class GUI:
         if not self.ActiveItem['templates'][NTemplate]:
             return 'red'
         return 'black'
-
-def GenerateNewType(Type):
-    if Type == 'Struct':
-        File = 'struct {\n};'
-    elif Type == 'Packed struct':
-        File = 'SEPIA_PACK(struct {\n});'
-    elif Type == 'Lambda Function':
-        File = '[&]() {\n}'
-    return File
 
 G = GUI()

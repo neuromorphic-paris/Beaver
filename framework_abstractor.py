@@ -55,7 +55,7 @@ class FrameworkAbstraction:
 
         if not ChildrenModule['module']['has_operator']:
             self.LogFunction("Can't send events to {0}".format(ChildrenModule['name']))
-            return False
+            return ''
 
         Added = False
         HandlersParamsIndexes = FindModuleHandlers(ParentModule['module'])
@@ -66,10 +66,13 @@ class FrameworkAbstraction:
                 break
         if not Added:
             self.LogFunction("Unable to link {0} to {1} : no Handler slot available".format(ParentModule['name'], ChildrenModule['name']))
-            return False
+            return ''
         ChildrenModule['parent_ids'] += [ParentID]
-        self.LinksTypes[GetLinkTuple(ParentID, ChildrenID)] = None
-        return True
+        self.LinksTypes[GetLinkTuple(ParentID, ChildrenID)] = ['', '?']
+        if ParentModule['module']['needs_lambda']:
+            self.LinksTypes[GetLinkTuple(ParentID, ChildrenID)][0] = self.GenerateNewLambdaFunction(ParentModule['module']['ev_outputs'][ParentModule['module']['parameters'][nParam]['name']], CreateCommentsForRequieredFields(ChildrenModule['module']['ev_fields']))
+            return self.LinksTypes[GetLinkTuple(ParentID, ChildrenID)][0]
+        return ''
 
     def RemoveLink(self, ParentID, ChildrenID):
         ParentModule = self.GetModuleByID(ParentID)
@@ -86,8 +89,29 @@ class FrameworkAbstraction:
             self.LogFunction("Unable to find and remove link from {0} to {1}".format(ParentModule['name'], ChildrenModule['name']))
             return False
         ChildrenModule['parent_ids'].remove(ParentModule['id'])
+        if self.LinksTypes[GetLinkTuple(ParentID, ChildrenID)][0]: # If the module needed an output lambda function
+            self.RemoveLambdaFunction(self.LinksTypes[GetLinkTuple(ParentID, ChildrenID)][0])
+            del self.LinksTypes[GetLinkTuple(ParentID, ChildrenID)]
+            return True
+
         del self.LinksTypes[GetLinkTuple(ParentID, ChildrenID)]
-        return True
+        return False
+
+    def GenerateNewLambdaFunction(self, inputFields = [], CommentLine = ''):
+        Defaultname = 'LambdaFunction'
+        AskedName = Defaultname
+        N = 0
+        while AskedName in self.Files.keys():
+            N += 1
+            AskedName = Defaultname + '_{0}'.format(N)
+        Data = self.Writer.WriteNewLambdaFunction(AskedName, inputFields, CommentLine)
+        self.UserWrittenCode += [AskedName]
+        self.Files[AskedName] = {'data': Data, 'type': 'Lambda Function'}
+        return AskedName
+
+    def RemoveLambdaFunction(self, FuncName):
+        self.UserWrittenCode.remove(FuncName)
+        del self.Files[FuncName]
 
     def GenerateCode(self):
         self.Writer.WriteCode(self.Data)
@@ -177,6 +201,8 @@ class CodeWriterClass:
         self.SYSTEM_CONFIGS['macosx'] = {'buildoptions': ['-std=c++11'], 'linkoptions': ['-std=c++11']}
         self.SYSTEM_CONFIGS['windows'] = {'files': ['.clang-format']}
 
+        self.CPP_TAB = " "*4
+
         if LogFunction is None:
             self.LogFunction = sys.stdout.write
         else:
@@ -205,6 +231,21 @@ class CodeWriterClass:
         
         self.LogFunction("Built project directory.")
     
+    def WriteNewLambdaFunction(self, Name, InputFields, CommentLine):
+        File = ''
+        File += CommentLine
+        File += '[&]('
+        if len(InputFields) == 0:
+            None
+        else:
+            File += '\n'
+            for Field in InputFields:
+                File += self.CPP_TAB + '?, // ' + Field + '\n'
+        File += '){\n'
+        File += self.CPP_TAB + '\n'
+        File += '}'
+        return File
+
     def CreateLUAFile(self, ProjectName, ChameleonModules = []):
         ProjectDir = self._GetProjectDir(ProjectName)
         configurations = ['release', 'debug']
@@ -252,6 +293,9 @@ class CodeWriterClass:
         ProjectDir = self._GetProjectDir(ProjectName)
         with open(ProjectDir + self.SOURCE_DIRECTORY + ProjectName + '.cpp', 'w') as CppFile:
             _AddIncludeModule(CppFile, 'sepia/', 'sepia.hpp')
+
+def CreateCommentsForRequieredFields(Fields):
+    return '/// Children module requires : ' + ', '.join(Fields) + '\n\n'
 
 def _Check_Type_Int(Value):
     if '<<' in Value:

@@ -122,6 +122,7 @@ def ScrapChameleonFolder():
             EVFields, PushLineInRenderer = FindPushAndExtractRequiredFields(Lines, ModuleName)
             Modules[ModuleName]['ev_fields'] = EVFields
             Modules[ModuleName]['has_operator'] = True
+            Modules[ModuleName]['needs_lambda'] = False
             Modules[ModuleName]['ev_outputs'] = {}
     return Modules
 

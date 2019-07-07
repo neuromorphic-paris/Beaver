@@ -16,6 +16,9 @@ CLASS_INDICATOR = 'class '
 VARIABLE_CHARS = 'abcdefghijklmnopqrstuvwxyz_'
 EVENT_OPERATOR_INDICATOR = 'operator()'
 
+EVENT_TO_REGEX = 'EventTo'
+HANDLE_EVENT_REGEX = 'Handle[a-zA-Z]*'
+
 def GetTarsierCode(Filename, Full = False):
     with open(TARSIER_SOURCE_FOLDER + Filename, 'r') as f:
         Lines = []
@@ -238,6 +241,15 @@ def ScrapTarsierFolder():
                 Modules[ModuleName] = {}
                 Modules[ModuleName]['parameters'] = ExtractArguments(Lines, StartLine)
                 Modules[ModuleName]['templates'] = ExtractTemplates(Lines, StartLine)
+                for Template in Modules[ModuleName]['templates']:
+                    if Template['type'] == 'type': # That is actually sepia::type, also scrapped here.
+                        Template['type'] = 'sepia::type'
+                    for Parameter in Modules[ModuleName]['parameters']:
+                        if Template['name'] == Parameter['type'].strip('&'):
+                            if Template['default']:
+                                Template['default'] = '#Deduced' + ' (' + Template['default'] + ')'
+                            else:
+                                Template['default'] = '#Deduced'
                 Modules[ModuleName]['origin'] = 'tarsier'
                 Modules[ModuleName]['name'] = ModuleName
                 EVFields, OperatorLine = ExtractEventRequiredFields(Lines, ModuleName)
@@ -247,9 +259,14 @@ def ScrapTarsierFolder():
                     Modules[ModuleName]['has_operator'] = False
                 Modules[ModuleName]['ev_fields'] = EVFields
                 Modules[ModuleName]['ev_outputs'] = {}
+                FoundEventTo = False
                 for Param in Modules[ModuleName]['parameters']:
-                    if re.compile('Handle[a-zA-Z]*').match(Param['type']):
+                    if re.compile(HANDLE_EVENT_REGEX).match(Param['type']):
                         Modules[ModuleName]['ev_outputs'][Param['name']] = ExtractOutputFields(Lines, OperatorLine, ModuleName, Param['name'])
+                    if re.compile(EVENT_TO_REGEX).match(Param['type']):
+                        FoundEventTo = True
+                Modules[ModuleName]['needs_lambda'] = FoundEventTo
+
     return Modules
 
 if __name__ == '__main__':
