@@ -14,8 +14,9 @@ TEMPLATE_PARAM_TYPE = 'typename'
 CLASS_INDICATOR = 'class '
 
 VARIABLE_CHARS = 'abcdefghijklmnopqrstuvwxyz_'
-EVENT_OPERATOR_INDICATOR = 'operator()'
+VARIABLE_TEMPLATES_AND_NAMESPACE_ADDS = '<>:,'
 
+EVENT_OPERATOR_INDICATOR = 'operator()'
 EVENT_TO_REGEX = 'EventTo'
 HANDLE_EVENT_REGEX = 'Handle[a-zA-Z]*'
 
@@ -54,6 +55,7 @@ def Find_Make_Function(Filename, Lines):
     if not FoundMakeFunction:
         print("Unable to find correct {0} function.".format(MAKE_FUNCTION_INDICATOR))
         return None
+
 
 # We  assume here that only one tarsier class and module exist per file> Otherwise, use following lines as done with sepia
 #def FindAssociatedClass(Filename, Lines):
@@ -161,7 +163,7 @@ def ExtractEventRequiredFields(Lines, FuncName):
     StartLine = EndLine
     StudiedPart = Lines[StartLine].split('{')[-1]
 
-    RequiredFields = []
+    RequiredFields = [VarName]
     
     nOpen = 1
     nClose = 0
@@ -180,7 +182,6 @@ def ExtractEventRequiredFields(Lines, FuncName):
                 FinalField = AppearingField[:nChar]
                 if FinalField[0] == '_':
                     FinalField = FinalField[1:]
-                FinalField = VarName + '.' + FinalField
                 if FinalField not in RequiredFields:
                     RequiredFields += [FinalField]
         if not Line:
@@ -225,6 +226,35 @@ def ExtractOutputFields(Lines, OperatorLine, FuncName, handle_event, event_to = 
         OutputTerms += [AppearingField.strip()]
     return OutputTerms
 
+def FindVariableType(Lines, VarName):
+    for nLine, Line in enumerate(Lines):
+        if VarName in Line and (not COMMENT_INDICATOR in Line or Line.index(COMMENT_INDICATOR) > Line.index(VarName)):
+            TmpItem = ''
+            TmpType = ''
+            StudiedPart = Line.split(COMMENT_INDICATOR)[0].strip()
+
+            UsefulPart = StudiedPart.split(VarName)[0] # Get what is before the variable
+            if not UsefulPart.strip(): # No type declared prior the variable name
+                continue
+            TailPart = StudiedPart.split(VarName)[1]
+            if TailPart:
+                if not TailPart[0] in ' ;=({':
+                    continue
+            Type = ''
+            TemplateOpen = 0
+
+            for Char in reversed(UsefulPart.strip()):
+                if Char in VARIABLE_CHARS + VARIABLE_TEMPLATES_AND_NAMESPACE_ADDS or TemplateOpen:
+                    Type = Char+Type
+                    if Char == '>':
+                        TemplateOpen += 1
+                    elif Char == '<':
+                        TemplateOpen -= 1
+                else:
+                    return Type
+            return Type
+    return '?'
+
 def ScrapTarsierFolder():
     Filenames = os.listdir(TARSIER_SOURCE_FOLDER)
     Modules = {}
@@ -262,10 +292,16 @@ def ScrapTarsierFolder():
                 FoundEventTo = False
                 for Param in Modules[ModuleName]['parameters']:
                     if re.compile(HANDLE_EVENT_REGEX).match(Param['type']):
-                        Modules[ModuleName]['ev_outputs'][Param['name']] = ExtractOutputFields(Lines, OperatorLine, ModuleName, Param['name'])
+                        Fields = ExtractOutputFields(Lines, OperatorLine, ModuleName, Param['name'])
+                        Modules[ModuleName]['ev_outputs'][Param['name']] = []
+                        for Field in Fields:
+                            if EVFields and Field != EVFields[0]:
+                                Modules[ModuleName]['ev_outputs'][Param['name']] += [{'name': Field, 'type': FindVariableType(Lines, Field)}]
+                            else:
+                                Modules[ModuleName]['ev_outputs'][Param['name']] += [{'name': Field, 'type': Modules[ModuleName]['templates'][0]['name']}]
                     if re.compile(EVENT_TO_REGEX).match(Param['type']):
                         FoundEventTo = True
-                Modules[ModuleName]['needs_lambda'] = FoundEventTo
+                Modules[ModuleName]['has_event_to'] = FoundEventTo
 
     return Modules
 

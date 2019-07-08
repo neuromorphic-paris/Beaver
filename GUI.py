@@ -347,12 +347,20 @@ class GUI:
         ParentID = self.AvailablesModulesPositions[self.SelectedAvailableModulePosition][1]
         ChildrenID = self.AvailablesModulesPositions[self.SelectedAvailableModulePosition][2]
         NewModule = self.Framework.AddModule(self.AvailableModules[ModuleName], AskedModuleName)
+
         if not ParentID is None:
             self.AddLink(ParentID, NewModule['id'])
-        if not ChildrenID is None:
-            self.AddLink(NewModule['id'], ChildrenID)
+        self.AddLink(NewModule['id'], ChildrenID) # Event if ChildrenID is None, we add the link. In this case, it will be a link to a default lambda function
+
+        HandlersFileName = NewModule['name'] + framework_abstractor.HANDLERS_FILE_NAME_SUFFIX
+        if not HandlersFileName in self.Framework.Files.keys():
+            self.Framework.Files[HandlersFileName] = {'data': '', 'type': 'code'}
+
+        self.Framework.UpdateHandlersCodeFiles()
 
         self.AddModuleDisplay(self.Framework.Modules[-1], AutoDraw = True)
+        self.UpdateCodeMenu()
+        self.SetDisplayedCodefile(HandlersFileName, SaveCurrentFile = False)
 
     def AddModuleDisplay(self, Module, AutoDraw):
         self.DisplayedModulesPositions[Module['id']] = self.AvailablesModulesPositions[self.SelectedAvailableModulePosition][0]
@@ -417,7 +425,7 @@ class GUI:
             ModulePosition = self.DisplayedModulesPositions[ModuleID]
             ModuleType = Module['module']
             
-            NOutputs = len([Module['parameters'][nParam] for nParam in framework_abstractor.FindModuleHandlers(ModuleType) if not Module['parameters'][nParam]])
+            NOutputs = len([Module['parameters'][nParam] for nParam in framework_abstractor.FindModuleHandlers(ModuleType) if (not Module['parameters'][nParam] or Module['parameters'][nParam] == '@' + framework_abstractor.LAMBDA_FUNCTION_FROM.format(Module['module']['parameters'][nParam]['name']))])
             if NOutputs:
                 if ModulePosition[1] - self.ModulesTilingDistance not in list(AskedSlotsByHeight.keys()):
                     AskedSlotsByHeight[ModulePosition[1] - self.ModulesTilingDistance] = []
@@ -502,11 +510,17 @@ class GUI:
                 ParentModule = self.Framework.GetModuleByID(ParentID)
                 self.RemoveLink(ParentID, self.ActiveItem['id'])
             for nParameter in framework_abstractor.FindModuleHandlers(self.ActiveItem['module']):
-                if self.ActiveItem['parameters'][nParameter]:
+                if self.ActiveItem['parameters'][nParameter] and self.ActiveItem['parameters'][nParameter] != '@' + framework_abstractor.LAMBDA_FUNCTION_FROM.format(self.ActiveItem['module']['parameters'][nParameter]['name']):
                     self.RemoveLink(self.ActiveItem['id'], self.Framework.GetModuleByName(self.ActiveItem['parameters'][nParameter].split('@')[1])['id'])
+                HandlersFileName = self.ActiveItem['name'] + framework_abstractor.HANDLERS_FILE_NAME_SUFFIX
+                if HandlersFileName in self.Framework.Files.keys():
+                    del self.Framework.Files[HandlersFileName]
+            self.UpdateCodeMenu()
+            self.SetDisplayedCodefile(self.DefaultFile, SaveCurrentFile = False)
             self.Framework.Modules.remove(self.ActiveItem)
             self.ActiveItem = None
 
+            self.Framework.UpdateHandlersCodeFiles()
             self.RegenerateAvailableSlots()
             self.DrawFramework()
             self.ChangeDisplayedParams(0)
@@ -514,12 +528,14 @@ class GUI:
         elif type(self.ActiveItem) == tuple:
             ParentID, ChildID = self.Framework.GetParentAndChildFromLinkTuple(self.ActiveItem)
             self.RemoveLink(ParentID, ChildID)
+            self.Framework.UpdateHandlersCodeFiles()
             self.ActiveItem = None
 
             self.RegenerateAvailableSlots()
             self.DrawFramework()
             self.ChangeDisplayedParams(0)
             self.Log("Removed link from {0} to {1}".format(self.Framework.GetModuleByID(ParentID)['name'], self.Framework.GetModuleByID(ChildID)['name']))
+            self.SetDisplayedCodefile(SaveCurrentFile = False)
 
     def RouteModule(self):
         if self.ActiveItem is None or type(self.ActiveItem) != dict:
@@ -529,7 +545,7 @@ class GUI:
             HandlersParamsIndexes = framework_abstractor.FindModuleHandlers(self.ActiveItem['module'])
             FreeSlot = False
             for nParam in HandlersParamsIndexes:
-                if not self.ActiveItem['parameters'][nParam]:
+                if not self.ActiveItem['parameters'][nParam] or self.ActiveItem['parameters'][nParam] == '@' + framework_abstractor.LAMBDA_FUNCTION_FROM.format(self.ActiveItem['module']['parameters'][nParam]['name']):
                     FreeSlot = True
                     break
             if not FreeSlot:
@@ -574,6 +590,7 @@ class GUI:
             for ID in AllDescendance:
                 self.DisplayedModulesPositions[ID] = self.DisplayedModulesPositions[ID] + np.array([0., -1.]) * self.OffsetLinks[LinkTuple]
 
+        self.Framework.UpdateHandlersCodeFiles()
         self.WaitingForRoute = None
         self.RegenerateAvailableSlots()
         self.DrawFramework()
@@ -594,10 +611,7 @@ class GUI:
         return AllDescendance
 
     def AddLink(self, ParentID, ChildrenID):
-        CreatedFile = self.Framework.AddLink(ParentID, ChildrenID)
-        if CreatedFile:
-            self.UpdateCodeMenu()
-            self.SetDisplayedCodefile(CreatedFile)
+        self.Framework.AddLink(ParentID, ChildrenID)
 
     def RemoveLink(self, ParentID, ChildrenID):
         LinkTuple = framework_abstractor.GetLinkTuple(ParentID, ChildrenID)
@@ -606,10 +620,9 @@ class GUI:
             for ID in AllDescendance:
                 self.DisplayedModulesPositions[ID] = self.DisplayedModulesPositions[ID] - np.array([0., -1.]) * self.OffsetLinks[LinkTuple]
             del self.OffsetLinks[LinkTuple]
-        FileRemoved = self.Framework.RemoveLink(ParentID, ChildrenID)
-        if FileRemoved:
-            self.UpdateCodeMenu()
-            self.SetDisplayedCodefile(self.DefaultFile, SaveCurrentFile = False)
+        self.Framework.RemoveLink(ParentID, ChildrenID)
+        
+        self.Framework.UpdateHandlersCodeFiles()
 
     def AddNewType(self, Type):
         FileName = self.GenerateNewType(Type)
@@ -625,7 +638,7 @@ class GUI:
             None
             #File = 'SEPIA_PACK(struct {\n});'
         elif Type == 'Lambda Function':
-            FileName = self.Framework.GenerateNewLambdaFunction()
+            None
         return FileName
 
     def SetType(self, Type):
@@ -679,12 +692,13 @@ class GUI:
         for FileName in list(self.Framework.Files.keys()):
             Menu.add_command(label = FileName, command = partial(self.SetDisplayedCodefile, FileName))
 
-    def SetDisplayedCodefile(self, Codefile, SaveCurrentFile = True):
+    def SetDisplayedCodefile(self, Codefile = None, SaveCurrentFile = True):
         if SaveCurrentFile:
             self.RegisterCurrentCodePad()
         self.CodePad.delete('1.0', Tk.END)
-        self.CurrentCodeFile = Codefile
-        self.CodeFileVar.set(self.CurrentCodeFile)
+        if not Codefile is None:
+            self.CurrentCodeFile = Codefile
+            self.CodeFileVar.set(self.CurrentCodeFile)
         if self.CurrentCodeFile in list(self.Framework.Files.keys()):
             self.CodePad.insert(Tk.END, self.Framework.Files[self.CurrentCodeFile]['data'])
             self.CurrentCodeType = self.Framework.Files[self.CurrentCodeFile]['type']
@@ -772,19 +786,21 @@ class GUI:
             self.DisplayAx.plot([(ModulePosition + DXs[nDX])[0], (ModulePosition + DXs[(nDX+1)%4])[0]], [(ModulePosition + DXs[nDX])[1], (ModulePosition + DXs[(nDX+1)%4])[1]], ls = Style, color = Color, alpha = alpha)
         NameTextPosition = ModulePosition + self.ModulesDiameter/2 * 0.8 * np.array([-1, -1])
         self.DisplayAx.text(NameTextPosition[0], NameTextPosition[1], s = ModuleName, color = Color, alpha = alpha, fontsize = 8)
-        if not self.ActiveItem is None and type(self.ActiveItem) == dict and Module['id'] == self.ActiveItem['id'] and (ModuleEvFields):
+        if not self.ActiveItem is None and type(self.ActiveItem) == dict and Module['id'] == self.ActiveItem['id'] and len(ModuleEvFields) > 1:
             if ModulePosition[0] < 0:
                 HAlign = 'right'
                 FieldsTextPosition = ModulePosition + self.ModulesDiameter/2 * 1.2 * np.array([-1., 0])
             else:
                 HAlign = 'left'
                 FieldsTextPosition = ModulePosition + self.ModulesDiameter/2 * 1.2 * np.array([1., 0])
-            ModuleFieldsString = 'Input fields :\n' + ', '.join(ModuleEvFields)
+            ModuleFieldsString = 'Input fields for {0}:\n'.format(ModuleEvFields[0]) + ', '.join(ModuleEvFields[1:])
             if list(ModuleOutputFields.keys()):
                 ModuleFieldsString = ModuleFieldsString + '\nOutputs :'
                 for handle, Fields in list(ModuleOutputFields.items()):
-                    ModuleFieldsString = ModuleFieldsString + '\n* ' + handle + '\n  ->' + '\n  ->'.join(Fields)
-            self.DisplayAx.text(FieldsTextPosition[0], FieldsTextPosition[1], s = ModuleFieldsString, bbox={'facecolor': Color, 'alpha': 1, 'pad': 2}, horizontalalignment=HAlign, verticalalignment='center', zorder=10)
+                    ModuleFieldsString = ModuleFieldsString + '\n* ' + handle 
+                    for Field in Fields:
+                        ModuleFieldsString += '\n  -> {0} {1}'.format(Field['type'], Field['name'])
+            self.DisplayAx.text(FieldsTextPosition[0], FieldsTextPosition[1], s = ModuleFieldsString, bbox={'facecolor': Color, 'alpha': 1, 'pad': 2}, horizontalalignment=HAlign, verticalalignment='center', zorder=10, fontsize = 8)
     
     def DrawAvailableParentsLinks(self):
         Color = 'grey'
@@ -811,7 +827,7 @@ class GUI:
         Links = []
         nUnused = 0
         for HandleIndex in HandlersParamsIndexes:
-            if not Module['parameters'][HandleIndex]:
+            if (not Module['parameters'][HandleIndex] or Module['parameters'][HandleIndex] == '@' + framework_abstractor.LAMBDA_FUNCTION_FROM.format(Module['module']['parameters'][HandleIndex]['name'])):
                 AvailableChildren = [nAvailablePos for nAvailablePos, AvailablePos in enumerate(self.AvailablesModulesPositions) if AvailablePos[1] == Module['id']]
                 Links += [(Module['id'], -AvailableChildren[nUnused]-1, 0.5)]
                 nUnused += 1
@@ -957,7 +973,9 @@ class GUI:
             FirstLine = ''
         self.DisplayedParams += [[Tk.Label(self.ParamsValuesFrame, text = FirstLine, width = 20, anchor = Tk.W)]]
         self.DisplayedParams[-1][0].grid(row=len(self.DisplayedParams)-1, column = 0)
+
         for NField in range(self.CurrentMinParamDisplayed, min(len(ItemsFields), self.CurrentMinParamDisplayed + self.NFieldsDisplayed)):
+            EntryEnabled = True
             Field = ItemsFields[NField]
             self.DisplayedParams += [[]]
             if Field in AddedParams:
@@ -989,12 +1007,15 @@ class GUI:
                 else:
                     if 'default' in list(Field.keys()):
                         StrVar.set(Field['default'])
+                        if Field['default'] and Field['default'][0] == '#':
+                            EntryEnabled = False
 
             else:
                 Color = 'black'
                 StrVar = None
                 CBFunction = None
                 nField = None
+                EntryEnabled = False
 
             self.DisplayedParams[-1] += [Tk.Label(self.ParamsValuesFrame, text = Field['name'], width = 20, anchor = Tk.W, foreground = Color)]
             self.DisplayedParams[-1][-1].grid(row=len(self.DisplayedParams)-1, column=0, sticky = Tk.N)
@@ -1002,14 +1023,13 @@ class GUI:
             self.DisplayedParams[-1] += [Tk.Label(self.ParamsValuesFrame, text = Field['type'], width = 20, anchor = Tk.W)]
             self.DisplayedParams[-1][-1].grid(row=len(self.DisplayedParams)-1, column=1, sticky = Tk.N)
 
-            print(Field['name'])
-            print(CBFunction)
             if not CBFunction is None:
-                #StrVar.trace("w", lambda name, index, mode, sv=StrVar, LocalNumber = nField, DisplayNumber = len(self.DisplayedParams)-1: CBFunction(sv, LocalNumber, DisplayNumber))
                 StrVar.trace("w", lambda name, index, mode, sv=StrVar, func = CBFunction, LocalNumber = nField, DisplayNumber = len(self.DisplayedParams)-1: func(sv, LocalNumber, DisplayNumber))
                 self.DisplayedParams[-1] += [Tk.Entry(self.ParamsValuesFrame, textvariable = StrVar, width = 45, bg = 'white')]
+
+                if not EntryEnabled:
+                    self.DisplayedParams[-1][-1].config(state = 'disabled')
             else:
-                print("CB None")
                 self.DisplayedParams[-1] += [Tk.Label(self.ParamsValuesFrame, text = Field['value'], width = 45, anchor = Tk.W)]
             self.DisplayedParams[-1][-1].grid(row=len(self.DisplayedParams)-1, column=2, sticky = Tk.N+Tk.E)
         if self.CurrentMinParamDisplayed + self.NFieldsDisplayed < len(ItemsFields):

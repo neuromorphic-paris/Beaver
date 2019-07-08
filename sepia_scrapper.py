@@ -200,7 +200,7 @@ def ScrapSepiaFile():
         Modules[funcName]['ev_fields'] = []
         Modules[funcName]['has_operator'] = (funcName == 'make_split') # Hardcoded here, cause impossible anyway to get which template is created
         Modules[funcName]['ev_outputs'] = {}
-        Modules[funcName]['needs_lambda'] = False
+        Modules[funcName]['has_event_to'] = False
     Types = GetSepiaTypes(Lines)
     return Modules, Types
 
