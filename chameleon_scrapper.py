@@ -74,7 +74,7 @@ def FindPushAndExtractRequiredFields(Lines, FuncName):
     StartLine = EndLine
     StudiedPart = Lines[StartLine].split('{')[-1]
 
-    RequiredFields = []
+    RequiredFields = [VarName]
     
     nOpen = 1
     nClose = 0
@@ -129,4 +129,4 @@ def ScrapChameleonFolder():
 if __name__ == '__main__':
     args = sys.argv
 
-    Modules = ScrapChameleonFolder()
+    ChameleonModules = ScrapChameleonFolder()

@@ -54,7 +54,8 @@ def GetSepiaTypes(Lines):
         else:
             RawDefault = None
         if RawType.strip():
-            Types[RawType.strip()] = {'value': RawDefault, 'origin': 'sepia', 'fields': []}
+            Name = 'sepia::'+RawType.strip()+'_event'
+            Types[Name] = {'value': RawDefault, 'origin': 'sepia', 'fields': [], 'name': Name}
             Definition = SEPIA_TYPES_DEFINITION_LINE.format(RawType.strip())
             StudiedPart = ''
             for nLine, Line in enumerate(Lines):
@@ -86,7 +87,7 @@ def GetSepiaTypes(Lines):
                         Field['type'] = RawData.strip()
                     elif Field['name'] is None:
                         Field['name'] = RawData.strip()
-                        Types[RawType.strip()]['fields'] += [Field]
+                        Types[Name]['fields'] += [Field]
                         break
 
     return Types

@@ -8,9 +8,15 @@ import sepia_scrapper
 HANDLERS_FILE_NAME_SUFFIX = ' Handlers Functions'
 LAMBDA_FUNCTION_FROM = '{0}_function'
 
+USER_DEFINED = 'lambda'
+
+CPP_TAB = 4*' '
+LUA_TAB = 4*' '
+
 class FrameworkAbstraction:
     def __init__(self, Data = None, LogFunction = None):
         self.Data = {'modules': [], 'name': '', 'events_types': [], 'files': {'Documentation':{'data': '~ Generated with Beaver ~', 'type': 'documentation'}}, 'user_defined': [], 'links_types': {}, 'chameleon_tiles': {}}
+        self.NoneType = {'name': '?', 'fields':[], 'origin':'', 'value': None}
         self.ModulesIDs = []
         self.HasChameleon = False
         self.HasTariser = False
@@ -35,27 +41,92 @@ class FrameworkAbstraction:
         self.ModulesIDs = []
         for Module in self.Data['modules']:
             self.ModulesIDs += [Module['id']]
+# TODO : Add NonDefaultLambdaFunctions IDs here
             if Module['module']['origin'] == 'tarsier':
                 self.HasTariser = True
             elif Module['module']['origin'] == 'chameleon':
                 self.HasChameleon = True
 
     def AddModule(self, Module, AskedModuleName = None):
-        if not self.ModulesIDs:
-            NewID = 0
-        else:
-            NewID = max(self.ModulesIDs) + 1
-        self.Modules += [{'module': Module, 'id': NewID, 'parameters': [param['default'] for param in Module['parameters']], 'parent_ids': [], 'name': Module['name'], 'templates': [template['default'] for template in Module['templates']], 'lambda_functions': {}}]
+        NewID = self.GetNewID()
+        self.Modules += [{'module': Module, 
+                            'id': NewID, 
+                            'parameters': [param['default'] for param in Module['parameters']], 
+                            'parent_ids': [], 
+                            'name': Module['name'], 
+                            'templates': [template['default'] for template in Module['templates']], 
+                            'lambda_functions': {}, 
+                            'ev_outputs': {handle_event: list(Fields) for handle_event, Fields in Module['ev_outputs'].items()}}]
         if not AskedModuleName is None:
             self.Modules[-1]['name'] = AskedModuleName
-        self.ModulesIDs += [NewID]
         return self.Modules[-1]
 
     def AddLink(self, ParentID, ChildrenID):
         if ChildrenID is None:
-            self.AddNextLambdaLink(ParentID)
+            self.FillLambdasLinks(ParentID)
             return None
 
+        ParentModule = self.GetModuleByID(ParentID)
+        ChildrenModule = self.GetModuleByID(ChildrenID)
+
+        if ChildrenModule['module']['origin'] == 'chameleon':
+            return self.AddChameleonLink(ParentID, ChildrenID)
+
+        if not ChildrenModule['module']['has_operator']:
+            self.LogFunction("Can't send events to {0}".format(ChildrenModule['name']))
+            return None
+
+        Added = False
+        HandlersParamsIndexes = FindModuleHandlers(ParentModule['module'])
+        EventToParamIndexes = FindModuleEventTo(ParentModule['module'])
+        for nHandlerLocal in range(len(HandlersParamsIndexes)):
+            self.LinksTypes[GetLinkTuple(ParentID, ChildrenID)] = ['', self.NoneType['name']]
+
+            HandlerIndex = HandlersParamsIndexes[nHandlerLocal]
+            HandlerName = ParentModule['module']['parameters'][HandlerIndex]['name']
+            HandlerParamFuncName = LAMBDA_FUNCTION_FROM.format(HandlerName)
+            if ParentModule['parameters'][HandlerIndex] and (not (ParentModule['parameters'][HandlerIndex] == '@'+HandlerParamFuncName) or not ParentModule['lambda_functions'][HandlerParamFuncName]['default']):
+                # (should always be the case now)        //       If the hangler is actually a module, so we cannot link to another       //    If the lambda function has been modified (chameleon module or user written code)
+                continue
+
+            ChildrenModule['parent_ids'] += [ParentID]
+            self.LinksTypes[GetLinkTuple(ParentID, ChildrenID)] = ['', '?']
+
+            if ParentModule['parameters'][HandlerIndex] == '@'+HandlerParamFuncName:
+                del ParentModule['lambda_functions'][HandlerParamFuncName]
+
+            if HandlerName in ParentModule['ev_outputs'].keys():
+                OutputFields = ParentModule['ev_outputs'][HandlerName]
+            else:
+                OutputFields = []
+            RequiredFieldsForNextModule = ChildrenModule['module']['ev_fields']
+            RequiredFieldsCommentLine = CreateCommentsForRequieredFields(RequiredFieldsForNextModule)
+
+            if EventToParamIndexes:
+                EventToParamIndex = EventToParamIndexes[nHandlerLocal]
+                EventToParamName = ParentModule['module']['parameters'][EventToParamIndex]['name']
+                EventToParamFuncName = LAMBDA_FUNCTION_FROM.format(EventToParamName)
+                ParentModule['parameters'][EventToParamIndex] = '@' + EventToParamFuncName
+
+                ParentModule['lambda_functions'][EventToParamFuncName] = LambdaFunction(ID = None,
+                                                                                        Name = EventToParamFuncName,
+                                                                                        IntroductionLine = '/// lambda function for {0} :\n'.format(ParentModule['module']['parameters'][EventToParamIndex]['name']),
+                                                                                        InputFields = OutputFields, 
+                                                                                        RequiredFieldsCommentLine = RequiredFieldsCommentLine, 
+                                                                                        GlobalContext = False, 
+                                                                                        ReturnedObject = ' -> ? ')
+                self.LinksTypes[GetLinkTuple(ParentID, ChildrenID)][0] = EventToParamName
+
+            ParentModule['parameters'][HandlerIndex] = '@' + ChildrenModule['name']
+
+            Added = True
+            break
+
+        self.FillLambdasLinks(ParentID)
+        if not Added:
+            self.LogFunction("Unable to link {0} to {1} : no Handler slot available".format(ParentModule['name'], ChildrenModule['name']))
+
+    def AddChameleonLink(self, ParentID, ChildrenID):
         ParentModule = self.GetModuleByID(ParentID)
         ChildrenModule = self.GetModuleByID(ChildrenID)
 
@@ -67,57 +138,42 @@ class FrameworkAbstraction:
         HandlersParamsIndexes = FindModuleHandlers(ParentModule['module'])
         EventToParamIndexes = FindModuleEventTo(ParentModule['module'])
         for nHandlerLocal in range(len(HandlersParamsIndexes)):
-            self.LinksTypes[GetLinkTuple(ParentID, ChildrenID)] = ['', '?']
-
             HandlerIndex = HandlersParamsIndexes[nHandlerLocal]
             HandlerName = ParentModule['module']['parameters'][HandlerIndex]['name']
             HandlerParamFuncName = LAMBDA_FUNCTION_FROM.format(HandlerName)
             if ParentModule['parameters'][HandlerIndex] and not (ParentModule['parameters'][HandlerIndex] == '@'+HandlerParamFuncName):
+                # (should always be the case now)        //       If the hangler is actually a module, so we cannot add chameleon link
                 continue
 
-            ChildrenModule['parent_ids'] += [ParentID]
-            self.LinksTypes[GetLinkTuple(ParentID, ChildrenID)] = ['', '?']
-
-            if ParentModule['parameters'][HandlerIndex] == '@'+HandlerParamFuncName:
-                del ParentModule['lambda_functions'][HandlerParamFuncName]
-
-            if HandlerName in ParentModule['module']['ev_outputs'].keys():
-                OutputFields = ParentModule['module']['ev_outputs'][HandlerName]
-            else:
-                OutputFields = []
-            RequiredFieldsForNextModule = ChildrenModule['module']['ev_fields']
-            RequiredFieldsCommentLine = CreateCommentsForRequieredFields(RequiredFieldsForNextModule)
-
-            if EventToParamIndexes:
-                EventToParamIndex = EventToParamIndexes[nHandlerLocal]
-                EventToParamName = ParentModule['module']['parameters'][EventToParamIndex]['name']
-                ParentModule['parameters'][EventToParamIndex] = '@' + LAMBDA_FUNCTION_FROM.format(EventToParamName)
-
-                ParentModule['lambda_functions'][EventToParamName] = ''
-                ParentModule['lambda_functions'][EventToParamName] += '/// lambda function for {0} :\n'.format(ParentModule['module']['parameters'][EventToParamIndex]['name'])
-                ParentModule['lambda_functions'][EventToParamName] += self.Writer.WriteNewLambdaFunction(OutputFields, RequiredFieldsCommentLine, GlobalContext = False, ReturnsStuff = ' -> ? ')
-                self.LinksTypes[GetLinkTuple(ParentID, ChildrenID)][0] = EventToParamName
-
-            ParentModule['parameters'][HandlerIndex] = '@' + ChildrenModule['name']
+            LinkTuple = GetLinkTuple(ParentID, ChildrenID)
+            if LinkTuple in self.LinksTypes.keys():
+                self.LogFunction("{0} already sending events to {1} with this handler. More complex behaviours not implemented yet.".format(ParentModule['name'], ChildrenModule['name']))
+                continue
+            
+            LambdaFunction = ParentModule['lambda_functions'][HandlerParamFuncName]
+            LineID = LambdaFunction.AddAutoWrittenLine(ChildrenModule['name']+'->push();')
+            self.LinksTypes[GetLinkTuple(LambdaFunction['id'], ChildrenID)] = [LineID, '?']
+            if LambdaFunction not in self.Modules:
+                self.Modules += [LambdaFunction]
 
             Added = True
             break
-
         if not Added:
             self.LogFunction("Unable to link {0} to {1} : no Handler slot available".format(ParentModule['name'], ChildrenModule['name']))
 
-    def AddNextLambdaLink(self, ModuleID):
+    def FillLambdasLinks(self, ModuleID, Force = False):
         Module = self.GetModuleByID(ModuleID)
+        print("Filling lambdas for "+Module['name'])
         
         EventToParamIndexes = FindModuleEventTo(Module['module'])
         HandlersParamsIndexes = FindModuleHandlers(Module['module'])
         for nHandlerLocal in range(len(HandlersParamsIndexes)):
             HandlerIndex = HandlersParamsIndexes[nHandlerLocal]
             HandlerName = Module['module']['parameters'][HandlerIndex]['name']
-            if Module['parameters'][HandlerIndex]:
+            if Module['parameters'][HandlerIndex] and Module['parameters'][HandlerIndex].split('@')[-1] != LAMBDA_FUNCTION_FROM.format(HandlerName):
                 continue
-            if HandlerName in Module['module']['ev_outputs'].keys():
-                OutputFields = Module['module']['ev_outputs'][HandlerName]
+            if HandlerName in Module['ev_outputs'].keys():
+                OutputFields = Module['ev_outputs'][HandlerName]
             else:
                 OutputFields = []
             RequiredFieldsCommentLine = ''
@@ -126,21 +182,36 @@ class FrameworkAbstraction:
                 EventToParamIndex = EventToParamIndexes[nHandlerLocal]
                 EventToParamName = Module['module']['parameters'][EventToParamIndex]['name']
                 EventToParamFuncName = LAMBDA_FUNCTION_FROM.format(EventToParamName)
-                Module['lambda_functions'][EventToParamFuncName] = ''
-                Module['lambda_functions'][EventToParamFuncName] += '/// lambda function for {0} :\n'.format(EventToParamName)
-                Module['lambda_functions'][EventToParamFuncName] += self.Writer.WriteNewLambdaFunction(OutputFields, RequiredFieldsCommentLine, GlobalContext = False, ReturnsStuff = ' -> ? ')
+                if EventToParamFuncName in Module['lambda_functions'].keys():
+                    Default = Module['lambda_functions'][EventToParamFuncName]['default']
+                    if not Default and not Force:
+                        continue
+                Module['lambda_functions'][EventToParamFuncName] = LambdaFunction(ID = None, 
+                                                                                    Name = EventToParamFuncName,
+                                                                                    IntroductionLine = '/// lambda function for {0} :\n'.format(EventToParamName),
+                                                                                    InputFields = OutputFields,
+                                                                                    RequiredFieldsCommentLine = RequiredFieldsCommentLine,
+                                                                                    GlobalContext = False,
+                                                                                    ReturnedObject = ' -> ? ')
                 OutputFields = []
 
                 Module['parameters'][EventToParamIndex] = '@' + EventToParamFuncName
 
             HandlerParamFuncName  = LAMBDA_FUNCTION_FROM.format(HandlerName)
             Module['parameters'][HandlerIndex] = '@' + HandlerParamFuncName
-            Module['lambda_functions'][HandlerParamFuncName] = ''
-            Module['lambda_functions'][HandlerParamFuncName] += '/// Redirection for {0} :\n'.format(HandlerName)
-            Module['lambda_functions'][HandlerParamFuncName] += self.Writer.WriteNewLambdaFunction(OutputFields, '', GlobalContext = True, ReturnsStuff = '')
-            Module['lambda_functions'][HandlerParamFuncName] += '\n'
-
-            break
+            if HandlerParamFuncName in Module['lambda_functions'].keys():
+                Default = Module['lambda_functions'][HandlerParamFuncName]['default']
+                if not Default and not Force:
+                    continue
+            NewID = self.GetNewID()
+            Module['lambda_functions'][HandlerParamFuncName] = LambdaFunction(ID = NewID,
+                                                                                Name = HandlerParamFuncName,
+                                                                                IntroductionLine = '/// Redirection for {0} :\n'.format(HandlerName),
+                                                                                InputFields = OutputFields,
+                                                                                RequiredFieldsCommentLine = '',
+                                                                                GlobalContext = True,
+                                                                                ReturnedObject = '')
+            self.LinksTypes[GetLinkTuple(ModuleID, NewID)] = [None, '']
 
     def RemoveLink(self, ParentID, ChildrenID):
         ParentModule = self.GetModuleByID(ParentID)
@@ -166,13 +237,110 @@ class FrameworkAbstraction:
         self.AddNextLambdaLink(ParentID)
         return None
 
+    def SetType(self, Module, NewType, UpdatedIDsOnTrigger = []):
+        OriginalUpdatedIDsOnTrigger = list(UpdatedIDsOnTrigger)
+        if Module['id'] in UpdatedIDsOnTrigger: # To avoid permanent recursion
+            return None
+
+        UpdatedIDsOnTrigger += [Module['id']]
+        if Module['module']['origin'] == 'sepia' and 'observable' in  Module['module']['name']: # Here, type is actually the output type
+            Found = False
+            for TemplateField in Module['module']['templates']:
+                if TemplateField['name'] == 'event_stream_type':
+                    Module['templates'][TemplateField['template_number']] = NewType['name']
+                    Found = True
+                    break
+
+            if not Found:
+                self.LogFunction("Unable to change type for sepia module in SetType: no event_stream_type field found")
+                return None
+
+            HandlersParamsIndexes = FindModuleHandlers(Module['module'])
+            HandlerIndex = HandlersParamsIndexes[0]
+            HandlerName = Module['module']['parameters'][HandlerIndex]['name']
+
+            if NewType['name'] == self.NoneType['name']:
+                Module['ev_outputs'][HandlerName] = []
+            else:
+                Module['ev_outputs'][HandlerName] = [{'type': NewType['name'], 'name': 'event'}]
+            self.FillLambdasLinks(Module['id'])
+        
+            HandlerParamFuncName  = LAMBDA_FUNCTION_FROM.format(HandlerName)
+
+            if Module['parameters'][HandlerIndex] != '@' + HandlerParamFuncName: # Way to know that a link has been made for this handler
+                ChildrenModule = self.GetModuleByName(Module['parameters'][HandlerIndex].split('@')[-1])
+                self.LinksTypes[GetLinkTuple(Module['id'], ChildrenModule['id'])][1] = NewType['name']
+                self.SetType(ChildrenModule, NewType, UpdatedIDsOnTrigger)
+            else: # If no link, then lets tell the lambda function which type it gets
+                Module['lambda_functions'][HandlerParamFuncName].input_fields = Module['ev_outputs'][HandlerName]
+
+            # Those modules cannot have parents
+
+        elif Module['module']['origin'] == 'sepia' and  Module['module']['name'] == 'make_split':
+                self.LogFunction('Not implemented')
+        else:
+            Found = False
+            for TemplateField in Module['module']['templates']:
+                if TemplateField['name'] == 'Event':
+                    Module['templates'][TemplateField['template_number']] = NewType['name']
+                    Found = True
+                    break
+
+            if not Found:
+                self.LogFunction("Unable to change type for module in SetType: no Event field found")
+                self.UpdateHandlersCodeFiles()
+                return None
+            
+            HandlersParamsIndexes = FindModuleHandlers(Module['module'])
+            EventToParamIndexes = FindModuleEventTo(Module['module'])
+
+            HasUpdatedRelative = False
+            for nHandlerLocal in range(len(HandlersParamsIndexes)):
+                HandlerIndex = HandlersParamsIndexes[nHandlerLocal]
+                HandlersParamsIndexes = FindModuleHandlers(Module['module'])
+                HandlerIndex = HandlersParamsIndexes[0]
+                HandlerName = Module['module']['parameters'][HandlerIndex]['name']
+
+                if NewType['name'] == self.NoneType['name']:
+                    Module['ev_outputs'][HandlerName] = list(Module['module']['ev_outputs'][HandlerName])
+                else:
+                    for nField, Field in enumerate(Module['module']['ev_outputs'][HandlerName]):
+                        if Field['type'] == 'Event':
+                            Module['ev_outputs'][HandlerName][nField]['type'] = NewType['name']
+        
+                if EventToParamIndexes: # If there is a lambda function out of this module, then he had to deal with the descending change of type
+                    EventToParamIndex = EventToParamIndexes[nHandlerLocal]
+                    EventToParamName = Module['module']['parameters'][EventToParamIndex]['name']
+                    EventToParamFuncName = LAMBDA_FUNCTION_FROM.format(EventToParamName)
+                    if EventToParamFuncName in Module['lambda_functions'].keys():
+                        Module['lambda_functions'][EventToParamFuncName].input_fields = Module['ev_outputs'][HandlerName]
+                        continue
+                HandlerParamFuncName  = LAMBDA_FUNCTION_FROM.format(HandlerName)
+
+                if Module['parameters'][HandlerIndex] != '@' + HandlerParamFuncName: # Way to know that a link has been made for this handler
+                    ChildrenModule = self.GetModuleByName(Module['parameters'][HandlerIndex].split('@')[-1])
+                    HasUpdatedRelative = True
+                    self.LinksTypes[GetLinkTuple(Module['id'], ChildrenModule['id'])][1] = NewType['name']
+                    self.SetType(ChildrenModule, NewType, UpdatedIDsOnTrigger)
+
+                else:
+                    Module['lambda_functions'][HandlerParamFuncName].input_fields = Module['ev_outputs'][HandlerName]
+
+            for ParentID in Module['parent_ids']:
+                self.LinksTypes[GetLinkTuple(Module['id'], ParentID)][1] = NewType['name']
+                self.SetType(self.GetModuleByID(ParentID),  NewType, UpdatedIDsOnTrigger)
+            self.FillLambdasLinks(Module['id'])
+        if OriginalUpdatedIDsOnTrigger:
+            return None
+        self.UpdateHandlersCodeFiles()
+
     def UpdateHandlersCodeFiles(self):
         for Module in self.Modules:
-            if Module['module']['origin'] != 'chameleon':
+            if Module['module']['origin'] != 'chameleon' and Module['module']['origin'] != USER_DEFINED:
                 self.GenerateCurrentHandlersFile(Module)
 
     def GenerateCurrentHandlersFile(self, Module):
-        print("Generating hangler code file for {0}".format(Module['name']))
+        print("Generating handler code file for {0}".format(Module['name']))
         HandlersFileName = Module['name'] + HANDLERS_FILE_NAME_SUFFIX
         self.Files[HandlersFileName]['data'] = ''
 
@@ -193,45 +361,21 @@ class FrameworkAbstraction:
                 
                 self.Files[HandlersFileName]['data'] += '// '+EventToParamFuncName+'\n'
                 FuncName = LAMBDA_FUNCTION_FROM.format(EventToParamName)
-                self.Files[HandlersFileName]['data'] += Module['lambda_functions'][FuncName]
+                self.Files[HandlersFileName]['data'] += Module['lambda_functions'][FuncName]['data']
                 self.Files[HandlersFileName]['data'] += '\n'
 
             self.Files[HandlersFileName]['data'] += '// '+HandlerName+'\n'
 
             FuncName = LAMBDA_FUNCTION_FROM.format(HandlerName)
             if FuncName in Module['lambda_functions'].keys():
-                self.Files[HandlersFileName]['data'] += Module['lambda_functions'][FuncName]
+                self.Files[HandlersFileName]['data'] += Module['lambda_functions'][FuncName]['data']
             else:
                 self.Files[HandlersFileName]['data'] += Module['parameters'][HandlerIndex]+'\n\n'
 
             self.Files[HandlersFileName]['data'] += '\n'
 
-    def GenerateNewLambdaFunction(self, inputFields = [], CommentLine = ''):
-        Defaultname = 'LambdaFunction'
-        AskedName = Defaultname
-        N = 0
-        while AskedName in self.Files.keys():
-            N += 1
-            AskedName = Defaultname + '_{0}'.format(N)
-        Data = self.Writer.WriteNewLambdaFunction(inputFields, CommentLine)
-        self.Files[AskedName] = {'data': Data, 'type': 'Lambda Function'}
-        return AskedName
-
     def RemoveLambdaFunction(self, FuncName):
         del self.Files[FuncName]
-
-    def GenerateCode(self):
-        self.Writer.WriteCode(self.Data)
-
-    def GenerateBuild(self):
-        self.Writer.BuildDirectory(self.Data['name'], force = True)
-        ChameleonModules = []
-        for Module in self.Modules:
-            if Module['module']['origin'] == 'chameleon':
-                ChameleonModules += [Module]
-        LuaFilename = self.Writer.CreateLUAFile(self.Data['name'], ChameleonModules)
-        self.Files[LuaFilename] = {'data':LoadFile(LuaFilename), 'type': 'build'}
-        return LuaFilename
 
     def WellDefinedModule(self, Module):
         for nModule, ParameterAsked in enumerate(Module['module']['parameters']):
@@ -242,6 +386,22 @@ class FrameworkAbstraction:
                 return False
         return True
 
+    def GetFreeHandlersSlots(self, ModuleID):
+        Module = self.GetModuleByID(ModuleID)
+        HandlersParamsIndexes = FindModuleHandlers(Module['module'])
+        FreeHandlersParamsIndexes = []
+        for HandlerIndex in HandlersParamsIndexes:
+            if self.IsFreeSlot(Module, HandlerIndex):
+                FreeHandlersParamsIndexes += [HandlerIndex]
+        return FreeHandlersParamsIndexes
+
+    def IsFreeSlot(self, Module, HandlerIndex):
+        HandlerName = Module['module']['parameters'][HandlerIndex]['name']
+        HandlerParamFuncName  = LAMBDA_FUNCTION_FROM.format(HandlerName)
+        if (Module['parameters'][HandlerIndex] == '@'+HandlerParamFuncName) and Module['lambda_functions'][HandlerParamFuncName]['default']:
+            return True
+        return False
+
     def GetModuleByID(self, ID):
         for Module in self.Modules:
             if Module['id'] == ID:
@@ -251,6 +411,14 @@ class FrameworkAbstraction:
         for Module in self.Modules:
             if Module['name'] == Name:
                 return Module
+
+    def GetNewID(self):
+        if not self.ModulesIDs:
+            NewID = 0
+        else:
+            NewID = max(self.ModulesIDs) + 1
+        self.ModulesIDs += [NewID]
+        return NewID
 
     def GetChildrenIDs(self, ParentID):
         IDs = []
@@ -267,10 +435,25 @@ class FrameworkAbstraction:
         else:
             return Tuple[0], Tuple[1]
 
+    def GenerateCode(self):
+        self.Writer.WriteCode(self.Data)
+
+    def GenerateBuild(self):
+        self.Writer.BuildDirectory(self.Data['name'], force = True)
+        ChameleonModules = []
+        for Module in self.Modules:
+            if Module['module']['origin'] == 'chameleon':
+                ChameleonModules += [Module]
+        LuaFilename = self.Writer.CreateLUAFile(self.Data['name'], ChameleonModules)
+        self.Files[LuaFilename] = {'data':LoadFile(LuaFilename), 'type': 'build'}
+        return LuaFilename
+
 def GetLinkTuple(M1ID, M2ID):
     return (min(M1ID, M2ID), max(M1ID, M2ID))
 
 def FindModuleHandlers(Module):
+    if Module['origin'] == USER_DEFINED:
+        return []
     Indexes = []
     for nParam, Param in enumerate(Module['parameters']):
         if re.compile('Handle[a-zA-Z]*').match(Param['type']):
@@ -279,6 +462,8 @@ def FindModuleHandlers(Module):
     return Indexes
 
 def FindModuleEventTo(Module):
+    if Module['origin'] == USER_DEFINED:
+        return []
     Indexes = []
     for nParam, Param in enumerate(Module['parameters']):
         if re.compile(tarsier_scrapper.EVENT_TO_REGEX).match(Param['type']):
@@ -286,6 +471,8 @@ def FindModuleEventTo(Module):
     return Indexes
 
 def CountEventsHandlers(Module):
+    if Module['origin'] == USER_DEFINED:
+        return 0
     nOutputs = 0
     for Template in Module['templates']:
         if Template['type'] == 'typename' and re.compile('Handle[a-zA-Z]*').match(Template['name']):
@@ -298,6 +485,85 @@ def LoadFile(Filename):
         Lines = f.readlines()
     return ''.join(Lines)
 
+class LambdaFunction:
+    def __init__(self, ID, Name, IntroductionLine = '', InputFields = [], RequiredFieldsCommentLine = '', GlobalContext = False, ReturnedObject = ''):
+        self.id = ID
+        self.name = Name
+        self.default = True
+        self.data = ''
+        self.auto_written_lines = {}
+
+        self.input_fields = InputFields
+        self.intro_comment_line = IntroductionLine
+        self.req_fields_comment_line = RequiredFieldsCommentLine
+        self.global_context = GlobalContext
+        self.returned_object = ReturnedObject
+
+        # Module compatibility
+        self.module = {'origin' : USER_DEFINED,
+                        'parameters':[],
+                        'templates':[],
+                        'has_event_to':False,
+                        'ev_outputs':[],
+                        'has_operator':False,
+                        'ev_fields':[]}
+        
+        self.AUTO_WRITTEN_LINE_COMMENT = ' // #arl{0}'
+
+    def __getitem__(self, key):
+        if key == 'data':
+            self.Write()
+        return self.__dict__[key]
+
+    def __setitem__(self, key, value):
+        print("Writing code in lambda function")
+        self.__dict__[key] = value
+
+    def keys(self):
+        return self.__dict__.keys()
+
+    def values(self):
+        return self.__dict__.values()
+
+    def items(self):
+        return self.__dict__.items()
+    def Write(self):
+        self.data = self.intro_comment_line
+        self.data += self.req_fields_comment_line
+        self.data += '['
+        if self.global_context:
+            self.data += '&'
+        self.data += ']('
+        if not self.input_fields:
+            None
+        else:
+            self.data += '\n'
+            for Field in self.input_fields:
+                CorrectName = True
+                for Char in Field['name'].strip():
+                    if Char not in tarsier_scrapper.VARIABLE_CHARS:
+                        CorrectName = False
+                        break
+                if CorrectName:
+                    TryName = Field['name'].strip().strip('_')
+                else:
+                    TryName = '?'
+                self.data += CPP_TAB + Field['type']+' '+TryName+', // ' + Field['name'] + '\n'
+        self.data += ')' + self.returned_object + '{\n'
+        for auto_line_key in sorted(self.auto_written_lines.keys()):
+            auto_line = self.auto_written_lines[auto_line_key] + self.AUTO_WRITTEN_LINE_COMMENT.format(auto_line_key)
+            self.data += CPP_TAB + auto_line + '\n'
+        self.data += '}'
+
+    def AddAutoWrittenLine(self, Line):
+        if self.auto_written_lines.keys():
+            LineID = max(self.auto_written_lines.keys())
+        else:
+            LineID = 0
+        self.auto_written_lines[LineID] = Line
+        self.default = False
+        return LineID
+
 class CodeWriterClass:
     def __init__(self, LogFunction = None):
         self.PROJECTS_DIRECTORY = "Projects/"
@@ -306,7 +572,7 @@ class CodeWriterClass:
 
         self.BUILD_TARGET = "build/"
 
-        self.LUA_TAB = " "*4
+        self.LUA_TAB = LUA_TAB
 
         self.SYSTEM_CONFIGS = {}
         self.SYSTEM_CONFIGS['release'] = {'targetdir': self.BUILD_TARGET + 'release', 'defines': ['NDEBUG'], 'flags': ['OptimizeSpeed']}
@@ -315,7 +581,7 @@ class CodeWriterClass:
         self.SYSTEM_CONFIGS['macosx'] = {'buildoptions': ['-std=c++11'], 'linkoptions': ['-std=c++11']}
         self.SYSTEM_CONFIGS['windows'] = {'files': ['.clang-format']}
 
-        self.CPP_TAB = " "*4
+        self.CPP_TAB = CPP_TAB
 
         if LogFunction is None:
             self.LogFunction = sys.stdout.write
@@ -345,33 +611,6 @@ class CodeWriterClass:
         
         self.LogFunction("Built project directory.")
     
-    def WriteNewLambdaFunction(self, InputFields, CommentLine, GlobalContext, ReturnsStuff):
-        Data = ''
-        Data += CommentLine
-        Data += '['
-        if GlobalContext:
-            Data += '&'
-        Data += ']('
-        if len(InputFields) == 0:
-            None
-        else:
-            Data += '\n'
-            for Field in InputFields:
-                CorrectName = True
-                for Char in Field['name'].strip():
-                    if Char not in tarsier_scrapper.VARIABLE_CHARS:
-                        CorrectName = False
-                        break
-                if CorrectName:
-                    TryName = Field['name'].strip().strip('_')
-                else:
-                    TryName = '?'
-                Data += self.CPP_TAB + Field['type']+' '+TryName+', // ' + Field['name'] + '\n'
-        Data += ')' + ReturnsStuff + '{\n'
-        Data += self.CPP_TAB + '\n'
-        Data += '}'
-        return Data
-
     def CreateLUAFile(self, ProjectName, ChameleonModules = []):
         ProjectDir = self._GetProjectDir(ProjectName)
         configurations = ['release', 'debug']
@@ -421,7 +660,10 @@ class CodeWriterClass:
             _AddIncludeModule(CppFile, 'sepia/', 'sepia.hpp')
 
 def CreateCommentsForRequieredFields(Fields):
-    return '/// Children module expects {0} with at least fields : '.format(Fields[0]) + ', '.join(Fields[1:]) + '\n\n'
+    if Fields:
+        return '/// Children module expects {0} with at least fields : '.format(Fields[0]) + ', '.join(Fields[1:]) + '\n\n'
+    else:
+        return '/// Children module does not require any specific field'
 
 def _Check_Type_Int(Value):
     if '<<' in Value:
