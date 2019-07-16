@@ -6,12 +6,15 @@ import tarsier_scrapper
 import sepia_scrapper
 
 HANDLERS_FILE_NAME_SUFFIX = ' Handlers Functions'
-LAMBDA_FUNCTION_FROM = '{0}_function'
+LAMBDA_FUNCTION_FROM = '{0} -> {1}_function'
 
 USER_DEFINED = 'lambda'
 
 CPP_TAB = 4*' '
 LUA_TAB = 4*' '
+
+def W(Value):
+    print("Here : {0}".format(Value))
 
 class FrameworkAbstraction:
     def __init__(self, Data = None, LogFunction = None):
@@ -59,8 +62,28 @@ class FrameworkAbstraction:
                             'ev_outputs': {handle_event: list(Fields) for handle_event, Fields in Module['ev_outputs'].items()}}]
         if not AskedModuleName is None:
             self.Modules[-1]['name'] = AskedModuleName
+        self.FillLambdasLinks(NewID)
         return self.Modules[-1]
 
+    def RemoveModule(self, Module):
+        ModuleName = Module['name']
+        AvailableToRemove = []
+        for ParentID in Module['parent_ids']:
+            ParentModule = self.GetModuleByID(ParentID)
+            self.RemoveLink(ParentID, Module['id'])
+        for nParameter in FindModuleHandlers(Module['module']):
+            if Module['parameters'][nParameter] != '@' + LAMBDA_FUNCTION_FROM.format(Module['name'], Module['module']['parameters'][nParameter]['name']):
+                self.RemoveLink(Module['id'], self.GetModuleByName(Module['parameters'][nParameter].split('@')[1])['id'])
+            else:
+                ChildrenLambdaFunction = self.GetModuleByName(Module['parameters'][nParameter].split('@')[1])
+                if not ChildrenLambdaFunction is None:
+                    self.RemoveModule(self.GetModuleByName(Module['parameters'][nParameter].split('@')[1]))
+            HandlersFileName = Module['name'] + HANDLERS_FILE_NAME_SUFFIX
+            if HandlersFileName in self.Files.keys():
+                del self.Files[HandlersFileName]
+        self.Modules.remove(Module)
+        self.UpdateHandlersCodeFiles()
+    
     def AddLink(self, ParentID, ChildrenID):
         if ChildrenID is None:
             self.FillLambdasLinks(ParentID)
@@ -84,7 +107,7 @@ class FrameworkAbstraction:
 
             HandlerIndex = HandlersParamsIndexes[nHandlerLocal]
             HandlerName = ParentModule['module']['parameters'][HandlerIndex]['name']
-            HandlerParamFuncName = LAMBDA_FUNCTION_FROM.format(HandlerName)
+            HandlerParamFuncName = LAMBDA_FUNCTION_FROM.format(ParentModule['name'], HandlerName)
             if ParentModule['parameters'][HandlerIndex] and (not (ParentModule['parameters'][HandlerIndex] == '@'+HandlerParamFuncName) or not ParentModule['lambda_functions'][HandlerParamFuncName]['default']):
                 # (should always be the case now)        //       If the hangler is actually a module, so we cannot link to another       //    If the lambda function has been modified (chameleon module or user written code)
                 continue
@@ -105,10 +128,10 @@ class FrameworkAbstraction:
             if EventToParamIndexes:
                 EventToParamIndex = EventToParamIndexes[nHandlerLocal]
                 EventToParamName = ParentModule['module']['parameters'][EventToParamIndex]['name']
-                EventToParamFuncName = LAMBDA_FUNCTION_FROM.format(EventToParamName)
+                EventToParamFuncName = LAMBDA_FUNCTION_FROM.format(ParentModule['name'], EventToParamName)
                 ParentModule['parameters'][EventToParamIndex] = '@' + EventToParamFuncName
 
-                ParentModule['lambda_functions'][EventToParamFuncName] = LambdaFunction(ID = None,
+                ParentModule['lambda_functions'][EventToParamFuncName] = LambdaFunctionClass(ID = None,
                                                                                         Name = EventToParamFuncName,
                                                                                         IntroductionLine = '/// lambda function for {0} :\n'.format(ParentModule['module']['parameters'][EventToParamIndex]['name']),
                                                                                         InputFields = OutputFields, 
@@ -140,7 +163,7 @@ class FrameworkAbstraction:
         for nHandlerLocal in range(len(HandlersParamsIndexes)):
             HandlerIndex = HandlersParamsIndexes[nHandlerLocal]
             HandlerName = ParentModule['module']['parameters'][HandlerIndex]['name']
-            HandlerParamFuncName = LAMBDA_FUNCTION_FROM.format(HandlerName)
+            HandlerParamFuncName = LAMBDA_FUNCTION_FROM.format(ParentModule['name'], HandlerName)
             if ParentModule['parameters'][HandlerIndex] and not (ParentModule['parameters'][HandlerIndex] == '@'+HandlerParamFuncName):
                 # (should always be the case now)        //       If the hangler is actually a module, so we cannot add chameleon link
                 continue
@@ -170,7 +193,7 @@ class FrameworkAbstraction:
         for nHandlerLocal in range(len(HandlersParamsIndexes)):
             HandlerIndex = HandlersParamsIndexes[nHandlerLocal]
             HandlerName = Module['module']['parameters'][HandlerIndex]['name']
-            if Module['parameters'][HandlerIndex] and Module['parameters'][HandlerIndex].split('@')[-1] != LAMBDA_FUNCTION_FROM.format(HandlerName):
+            if Module['parameters'][HandlerIndex] and Module['parameters'][HandlerIndex].split('@')[-1] != LAMBDA_FUNCTION_FROM.format(Module['name'], HandlerName):
                 continue
             if HandlerName in Module['ev_outputs'].keys():
                 OutputFields = Module['ev_outputs'][HandlerName]
@@ -181,13 +204,13 @@ class FrameworkAbstraction:
             if EventToParamIndexes:
                 EventToParamIndex = EventToParamIndexes[nHandlerLocal]
                 EventToParamName = Module['module']['parameters'][EventToParamIndex]['name']
-                EventToParamFuncName = LAMBDA_FUNCTION_FROM.format(EventToParamName)
+                EventToParamFuncName = LAMBDA_FUNCTION_FROM.format(Module['name'], EventToParamName)
                 if EventToParamFuncName in Module['lambda_functions'].keys():
                     Default = Module['lambda_functions'][EventToParamFuncName]['default']
                     if not Default and not Force:
                         continue
-                Module['lambda_functions'][EventToParamFuncName] = LambdaFunction(ID = None, 
-                                                                                    Name = EventToParamFuncName,
+                Module['lambda_functions'][EventToParamFuncName] = LambdaFunctionClass(ID = None, 
+                                                                                    Name = EventToParamFuncName, 
                                                                                     IntroductionLine = '/// lambda function for {0} :\n'.format(EventToParamName),
                                                                                     InputFields = OutputFields,
                                                                                     RequiredFieldsCommentLine = RequiredFieldsCommentLine,
@@ -197,20 +220,20 @@ class FrameworkAbstraction:
 
                 Module['parameters'][EventToParamIndex] = '@' + EventToParamFuncName
 
-            HandlerParamFuncName  = LAMBDA_FUNCTION_FROM.format(HandlerName)
-            Module['parameters'][HandlerIndex] = '@' + HandlerParamFuncName
+            HandlerParamFuncName  = LAMBDA_FUNCTION_FROM.format(Module['name'], HandlerName)
             if HandlerParamFuncName in Module['lambda_functions'].keys():
                 Default = Module['lambda_functions'][HandlerParamFuncName]['default']
                 if not Default and not Force:
                     continue
             NewID = self.GetNewID()
-            Module['lambda_functions'][HandlerParamFuncName] = LambdaFunction(ID = NewID,
+            Module['lambda_functions'][HandlerParamFuncName] = LambdaFunctionClass(ID = NewID,
                                                                                 Name = HandlerParamFuncName,
                                                                                 IntroductionLine = '/// Redirection for {0} :\n'.format(HandlerName),
                                                                                 InputFields = OutputFields,
                                                                                 RequiredFieldsCommentLine = '',
                                                                                 GlobalContext = True,
                                                                                 ReturnedObject = '')
+            Module['parameters'][HandlerIndex] = '@' + Module['lambda_functions'][HandlerParamFuncName]['name']
             self.LinksTypes[GetLinkTuple(ModuleID, NewID)] = [None, '']
 
     def RemoveLink(self, ParentID, ChildrenID):
@@ -234,13 +257,43 @@ class FrameworkAbstraction:
             return None
 
         del self.LinksTypes[GetLinkTuple(ParentID, ChildrenID)]
-        self.AddNextLambdaLink(ParentID)
+        self.FillLambdasLinks(ParentID)
+        self.UpdateHandlersCodeFiles()
         return None
 
+    def ChangeModuleName(self, Module, AskedName):
+        PreviousName = Module['name']
+        Module['name'] = AskedName
+
+        PreviousHandlersFileName = PreviousName + HANDLERS_FILE_NAME_SUFFIX
+        NewHandlersFileName = Module['name'] + HANDLERS_FILE_NAME_SUFFIX
+        self.Files[NewHandlersFileName] = self.Files[PreviousHandlersFileName]
+        del self.Files[PreviousHandlersFileName]
+
+        for ParentID in Module['parent_ids']:
+            ParentModule = self.GetModuleByID(ParentID)
+            for HandlerIndex in FindModuleHandlers(ParentModule['module']):
+                Param = ParentModule['parameters'][HandlerIndex]
+                if '@' in Param and Param.split('@')[1] == PreviousName:
+                    ParentModule['parameters'][nParam] = '@' + AskedName
+
+        for HandlerIndex in FindModuleHandlers(Module['module']):
+            HandlerName = Module['module']['parameters'][HandlerIndex]['name']
+            PreviousHandlerParamFuncName = LAMBDA_FUNCTION_FROM.format(PreviousName, HandlerName)
+            if Module['parameters'][HandlerIndex] == '@' + PreviousHandlerParamFuncName:
+                NewHandlerParamFuncName = LAMBDA_FUNCTION_FROM.format(AskedName, HandlerName)
+                Module['parameters'][HandlerIndex] = '@' + NewHandlerParamFuncName
+                Module['lambda_functions'][NewHandlerParamFuncName] = Module['lambda_functions'][PreviousHandlerParamFuncName]
+                del Module['lambda_functions'][PreviousHandlerParamFuncName]
+        self.UpdateHandlersCodeFiles()
+
     def SetType(self, Module, NewType, UpdatedIDsOnTrigger = []):
+        W(Module['name']+" start")
         OriginalUpdatedIDsOnTrigger = list(UpdatedIDsOnTrigger)
+        print(OriginalUpdatedIDsOnTrigger)
         if Module['id'] in UpdatedIDsOnTrigger: # To avoid permanent recursion
             return None
+        self.LogFunction("Updating type of "+Module['name'])
 
         UpdatedIDsOnTrigger += [Module['id']]
         if Module['module']['origin'] == 'sepia' and 'observable' in  Module['module']['name']: # Here, type is actually the output type
@@ -263,9 +316,8 @@ class FrameworkAbstraction:
                 Module['ev_outputs'][HandlerName] = []
             else:
                 Module['ev_outputs'][HandlerName] = [{'type': NewType['name'], 'name': 'event'}]
-            self.FillLambdasLinks(Module['id'])
         
-            HandlerParamFuncName  = LAMBDA_FUNCTION_FROM.format(HandlerName)
+            HandlerParamFuncName  = LAMBDA_FUNCTION_FROM.format(Module['name'], HandlerName)
 
             if Module['parameters'][HandlerIndex] != '@' + HandlerParamFuncName: # Way to know that a link has been made for this handler
                 ChildrenModule = self.GetModuleByName(Module['parameters'][HandlerIndex].split('@')[-1])
@@ -274,12 +326,14 @@ class FrameworkAbstraction:
             else: # If no link, then lets tell the lambda function which type it gets
                 Module['lambda_functions'][HandlerParamFuncName].input_fields = Module['ev_outputs'][HandlerName]
 
+            self.FillLambdasLinks(Module['id'])
             # Those modules cannot have parents
 
         elif Module['module']['origin'] == 'sepia' and  Module['module']['name'] == 'make_split':
                 self.LogFunction('Not implemented')
         else:
             Found = False
+            W(Module['name']+" 1")
             for TemplateField in Module['module']['templates']:
                 if TemplateField['name'] == 'Event':
                     Module['templates'][TemplateField['template_number']] = NewType['name']
@@ -294,6 +348,7 @@ class FrameworkAbstraction:
             HandlersParamsIndexes = FindModuleHandlers(Module['module'])
             EventToParamIndexes = FindModuleEventTo(Module['module'])
 
+            W(Module['name']+" 2")
             HasUpdatedRelative = False
             for nHandlerLocal in range(len(HandlersParamsIndexes)):
                 HandlerIndex = HandlersParamsIndexes[nHandlerLocal]
@@ -311,11 +366,11 @@ class FrameworkAbstraction:
                 if EventToParamIndexes: # If there is a lambda function out of this module, then he had to deal with the descending change of type
                     EventToParamIndex = EventToParamIndexes[nHandlerLocal]
                     EventToParamName = Module['module']['parameters'][EventToParamIndex]['name']
-                    EventToParamFuncName = LAMBDA_FUNCTION_FROM.format(EventToParamName)
+                    EventToParamFuncName = LAMBDA_FUNCTION_FROM.format(Module['name'], EventToParamName)
                     if EventToParamFuncName in Module['lambda_functions'].keys():
                         Module['lambda_functions'][EventToParamFuncName].input_fields = Module['ev_outputs'][HandlerName]
                         continue
-                HandlerParamFuncName  = LAMBDA_FUNCTION_FROM.format(HandlerName)
+                HandlerParamFuncName  = LAMBDA_FUNCTION_FROM.format(Module['name'], HandlerName)
 
                 if Module['parameters'][HandlerIndex] != '@' + HandlerParamFuncName: # Way to know that a link has been made for this handler
                     ChildrenModule = self.GetModuleByName(Module['parameters'][HandlerIndex].split('@')[-1])
@@ -326,7 +381,9 @@ class FrameworkAbstraction:
                 else:
                     Module['lambda_functions'][HandlerParamFuncName].input_fields = Module['ev_outputs'][HandlerName]
 
+            W(Module['name']+" 3")
             for ParentID in Module['parent_ids']:
+                print("Going up to {0}".format(ParentID))
                 self.LinksTypes[GetLinkTuple(Module['id'], ParentID)][1] = NewType['name']
                 self.SetType(self.GetModuleByID(ParentID),  NewType, UpdatedIDsOnTrigger)
             self.FillLambdasLinks(Module['id'])
@@ -357,16 +414,16 @@ class FrameworkAbstraction:
             if EventToParamIndexes:
                 EventToParamIndex = EventToParamIndexes[nHandlerLocal]
                 EventToParamName = Module['module']['parameters'][EventToParamIndex]['name']
-                EventToParamFuncName = LAMBDA_FUNCTION_FROM.format(EventToParamName)
+                EventToParamFuncName = LAMBDA_FUNCTION_FROM.format(Module['name'], EventToParamName)
                 
                 self.Files[HandlersFileName]['data'] += '// '+EventToParamFuncName+'\n'
-                FuncName = LAMBDA_FUNCTION_FROM.format(EventToParamName)
+                FuncName = LAMBDA_FUNCTION_FROM.format(Module['name'], EventToParamName)
                 self.Files[HandlersFileName]['data'] += Module['lambda_functions'][FuncName]['data']
                 self.Files[HandlersFileName]['data'] += '\n'
 
             self.Files[HandlersFileName]['data'] += '// '+HandlerName+'\n'
 
-            FuncName = LAMBDA_FUNCTION_FROM.format(HandlerName)
+            FuncName = LAMBDA_FUNCTION_FROM.format(Module['name'], HandlerName)
             if FuncName in Module['lambda_functions'].keys():
                 self.Files[HandlersFileName]['data'] += Module['lambda_functions'][FuncName]['data']
             else:
@@ -397,7 +454,7 @@ class FrameworkAbstraction:
 
     def IsFreeSlot(self, Module, HandlerIndex):
         HandlerName = Module['module']['parameters'][HandlerIndex]['name']
-        HandlerParamFuncName  = LAMBDA_FUNCTION_FROM.format(HandlerName)
+        HandlerParamFuncName  = LAMBDA_FUNCTION_FROM.format(Module['name'], HandlerName)
         if (Module['parameters'][HandlerIndex] == '@'+HandlerParamFuncName) and Module['lambda_functions'][HandlerParamFuncName]['default']:
             return True
         return False
@@ -485,7 +542,7 @@ def LoadFile(Filename):
         Lines = f.readlines()
     return ''.join(Lines)
 
-class LambdaFunction:
+class LambdaFunctionClass:
     def __init__(self, ID, Name, IntroductionLine = '', InputFields = [], RequiredFieldsCommentLine = '', GlobalContext = False, ReturnedObject = ''):
         self.id = ID
         self.name = Name

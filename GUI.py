@@ -127,7 +127,6 @@ class GUI:
         self.VModulesTilingDistance = 4.
         self.DisplayedModulesPositions = {}
 
-        self.OffsetLinks = {}
         self.DisplayedLinks = {}
         self.ActiveItem = None
         
@@ -165,7 +164,6 @@ class GUI:
         self.CodePad.bind("<<TextModified>>", self._onCodeModification)
         self.CodePad.grid(row = 1, column = 0)
         self.SortedFiles = []
-        self.UpdateCodeMenu()
         self.SetDisplayedCodefile(self.CurrentCodeFile, SaveCurrentFile = False)
         
         self.ParamsFrame = Tk.Frame(self.MainWindow, width = 100, bd = 4, relief='groove')
@@ -199,8 +197,7 @@ class GUI:
         self.ConsolePad.grid(row = 2, column = 2, sticky=Tk.N+Tk.S)
         self.MAX_LOG_LINES = 50
         
-        self.RegenerateAvailableSlots()
-        self.DrawFramework()
+        self.Update()
         self.ChangeDisplayedParams(0)
 
         self.Log("Ready !")
@@ -267,11 +264,10 @@ class GUI:
             self.TempFiles = {}
             self.DisplayedParams = []
             self.CurrentMinParamDisplayed = 0
-            self.RegenerateAvailableSlots()
             self.DisplayedModulesPositions = {}
-            self.OffsetLinks = {}
 
-            self.UpdateCodeMenu()
+            self.Update()
+            self.SetDisplayedCodefile(self.DefaultFile)
             self.ActiveItem = None
         self.DrawFramework()
         self.ChangeDisplayedParams(0)
@@ -313,20 +309,17 @@ class GUI:
                 self.TempFiles = {}
                 self.DisplayedParams = []
                 self.CurrentMinParamDisplayed = 0
-                self.RegenerateAvailableSlots()
                 self.DisplayedModulesPositions = {}
                 
-                self.OffsetLinks = {}
 
-                self.UpdateCodeMenu()
-                for Module in self.Framework.Modules:
-                    self.AddModuleDisplay(Module, AutoDraw = False)
                 self.ActiveItem = None
+                self.SetDisplayedCodefile(self.DefaultFile)
                 self.ChangeDisplayedParams(0)
                 try:
                     self.SetDisplayedCodefile(self.DefaultFile, SaveCurrentFile = False)
                 except:
                     self.SetDisplayedCodefile(list(self.Framework.Files.keys())[0], SaveCurrentFile = False)
+        self.Update()
         self.DrawFramework()
         self.ChangeDisplayedParams(0)
 
@@ -363,18 +356,9 @@ class GUI:
 
         self.Framework.UpdateHandlersCodeFiles()
 
-        self.AddModuleDisplay(self.Framework.Modules[-1], AutoDraw = True)
-        self.UpdateCodeMenu()
+        self.ActiveItem = self.Framework.Modules[-1]
+        self.Update()
         self.SetDisplayedCodefile(HandlersFileName, SaveCurrentFile = False)
-
-    def AddModuleDisplay(self, Module, AutoDraw):
-        print("Adding module display for ", Module)
-        self.DisplayedModulesPositions[Module['id']] = self.AvailablesModulesPositions[self.SelectedAvailableModulePosition][0]
-        self.RegenerateAvailableSlots()
-        if AutoDraw:
-            self.ActiveItem = self.Framework.Modules[-1]
-            self.DrawFramework()
-            self.ChangeDisplayedParams(0)
 
     def AddChameleonModule(self, ModuleName, AddBGC = True): # As Chameleon modules are quite uniques, we add them apart
         ModuleNames = [Module['name'] for Module in self.Framework.Modules]
@@ -404,101 +388,12 @@ class GUI:
     def AddChameleonModuleDisplay(self, Module, AutoDraw):
         print("Adding chameleon module display for ", Module)
         self.DisplayedModulesPositions[Module['id']] = self.AvailablesModulesPositions[self.SelectedAvailableChameleonModulePosition][0]
-        self.RegenerateAvailableSlots()
+        self.Update()
         if AutoDraw:
             self.ActiveItem = self.Framework.Modules[-1]
             self.DrawFramework()
             self.ChangeDisplayedParams(0)
 
-    def RegenerateAvailableSlots(self):
-        print("Regenerating available slots")
-        self.AvailablesModulesPositions = []
-        if not [Module['id'] for Module in self.Framework.Modules if Module['module']['origin'] != 'chameleon']:
-            self.AvailablesModulesPositions += [(np.array([0., 0.]), None, None)]
-            self.ChameleonInitialTilePosition = np.array([0., -self.VModulesTilingDistance])
-            self.SelectedAvailableModulePosition = 0
-            self.SelectedAvailableChameleonModulePosition = len(self.AvailablesModulesPositions)
-            self.RegenerateChameleonAvailableSlots()
-            return None
-
-        PossibleSlots = []
-        AskedSlotsByHeight = {}
-        TakenSlotsByHeight = {}
-
-        for Module in self.Framework.Modules:
-            if Module['module']['origin'] == 'chameleon':
-                continue
-            ModuleID = Module['id']
-            ModulePosition = self.DisplayedModulesPositions[ModuleID]
-            ModuleType = Module['module']
-            
-            NOutputs = len(self.Framework.GetFreeHandlersSlots(ModuleID))
-            if NOutputs:
-                if ModulePosition[1] - self.VModulesTilingDistance not in list(AskedSlotsByHeight.keys()):
-                    AskedSlotsByHeight[ModulePosition[1] - self.VModulesTilingDistance] = []
-                if ModulePosition[1] - self.VModulesTilingDistance not in list(TakenSlotsByHeight.keys()):
-                    TakenSlotsByHeight[ModulePosition[1] - self.VModulesTilingDistance] = []
-                AskedSlotsByHeight[ModulePosition[1] - self.VModulesTilingDistance] += [(ModulePosition[0], ModuleID, -1)] * NOutputs
-            
-            if ModuleType['has_operator']:
-                if ModulePosition[1] + self.VModulesTilingDistance not in list(AskedSlotsByHeight.keys()):
-                    AskedSlotsByHeight[ModulePosition[1] + self.VModulesTilingDistance] = []
-                if ModulePosition[1] + self.VModulesTilingDistance not in list(TakenSlotsByHeight.keys()):
-                    TakenSlotsByHeight[ModulePosition[1] + self.VModulesTilingDistance] = []
-                AskedSlotsByHeight[ModulePosition[1] + self.VModulesTilingDistance] += [(ModulePosition[0], -1, ModuleID)]
-
-            if ModulePosition[1] not in list(TakenSlotsByHeight.keys()):
-                TakenSlotsByHeight[ModulePosition[1]] = []
-            if ModulePosition[1] not in list(AskedSlotsByHeight.keys()):
-                AskedSlotsByHeight[ModulePosition[1]] = []
-            TakenSlotsByHeight[ModulePosition[1]] += [(ModulePosition[0], ModuleID, ModuleID)]
-
-        MinX = np.inf
-        for Height in sorted(AskedSlotsByHeight.keys()):
-            FinalLine = []
-            Line = AskedSlotsByHeight[Height] + TakenSlotsByHeight[Height]
-            for nIndex, Index in enumerate(np.argsort(np.array(Line)[:,0]).tolist()):
-                FinalLine += [(nIndex * self.HModulesTilingDistance, Line[Index][1], Line[Index][2])]
-            Avg = (np.array(FinalLine)[:,0]).mean()
-
-            def ReplaceNegs(Value):
-                if Value == -1:
-                    return None
-                else:
-                    return Value
-
-            for Item in FinalLine:
-                MinX = min(MinX, Item[0])
-                if -1 in Item:
-                    self.AvailablesModulesPositions += [(np.array([Item[0] - Avg, Height]), ReplaceNegs(Item[1]), ReplaceNegs(Item[2]))]
-                else:
-                    self.DisplayedModulesPositions[Item[1]] = np.array([Item[0] - Avg, Height])
-
-        self.SelectedAvailableModulePosition = 0
-        self.SelectedAvailableChameleonModulePosition = len(self.AvailablesModulesPositions)
-
-        MinHeight = min(AskedSlotsByHeight.keys())
-        ChameleonMaxHeight = MinHeight - self.VModulesTilingDistance
-        self.ChameleonInitialTilePosition = np.array([MinX, ChameleonMaxHeight])
-        self.RegenerateChameleonAvailableSlots()
-
-    def RegenerateChameleonAvailableSlots(self):
-        AddedTiles = []
-        if not list(self.Framework.ChameleonTiles.keys()):
-            AddedTiles += [(0,0)]
-        for Tile, IDs in list(self.Framework.ChameleonTiles.items()):
-            for nModule, ModuleID in enumerate(IDs):
-                self.DisplayedModulesPositions[ModuleID] = self.GetChameleonModulePosition(Tile, nModule)
-            self.AvailablesModulesPositions += [(self.GetChameleonModulePosition(Tile, nModule+1), Tile[0], Tile[1])]
-
-            NextTiles = [(Tile[0], Tile[1] + 1), (Tile[0] + 1, Tile[1]), (Tile[0] + 1, Tile[1] + 1)]
-            for NextTile in NextTiles:
-                if NextTile not in list(self.Framework.ChameleonTiles.keys()) and NextTile not in AddedTiles:
-                    AddedTiles += [NextTile]
-
-        for Tile in AddedTiles:
-            self.AvailablesModulesPositions += [(self.GetChameleonModulePosition(Tile, 0), Tile[0], Tile[1])]
-    
     def GetChameleonModulePosition(self, Tile, nModule):
         if not list(self.Framework.ChameleonTiles.values()):
             TilesSizes = 0
@@ -506,41 +401,28 @@ class GUI:
             TilesSizes = max([len(IDs) for IDs in list(self.Framework.ChameleonTiles.values())])
         return self.ChameleonInitialTilePosition + np.array([Tile[0] * (TilesSizes*self.ModulesDiameter + self.HModulesTilingDistance), - Tile[1] * self.VModulesTilingDistance/1.5]) + nModule * np.array([self.ModulesDiameter, 0])
 
-    def RemoveModule(self):
-        print("Removing module")
-        if self.ActiveItem is None:
+    def RemoveModule(self, Item = None):
+        if Item is None:
+            Item = self.ActiveItem
+        if Item is None:
             return None
-        if type(self.ActiveItem) == dict:
-            ModuleName = self.ActiveItem['name']
-            AvailableToRemove = []
-            del self.DisplayedModulesPositions[self.ActiveItem['id']]
-            for ParentID in self.ActiveItem['parent_ids']:
-                ParentModule = self.Framework.GetModuleByID(ParentID)
-                self.RemoveLink(ParentID, self.ActiveItem['id'])
-            for nParameter in framework_abstractor.FindModuleHandlers(self.ActiveItem['module']):
-                if self.ActiveItem['parameters'][nParameter] and self.ActiveItem['parameters'][nParameter] != '@' + framework_abstractor.LAMBDA_FUNCTION_FROM.format(self.ActiveItem['module']['parameters'][nParameter]['name']):
-                    self.RemoveLink(self.ActiveItem['id'], self.Framework.GetModuleByName(self.ActiveItem['parameters'][nParameter].split('@')[1])['id'])
-                HandlersFileName = self.ActiveItem['name'] + framework_abstractor.HANDLERS_FILE_NAME_SUFFIX
-                if HandlersFileName in self.Framework.Files.keys():
-                    del self.Framework.Files[HandlersFileName]
-            self.UpdateCodeMenu()
+        if type(Item) == dict:
+            self.Log("Removing {0}".format(Item['name']))
+            self.Framework.RemoveModule(Item)
+
             self.SetDisplayedCodefile(self.DefaultFile, SaveCurrentFile = False)
-            self.Framework.Modules.remove(self.ActiveItem)
             self.ActiveItem = None
 
-            self.Framework.UpdateHandlersCodeFiles()
-            self.RegenerateAvailableSlots()
-            self.DrawFramework()
+            self.Update()
             self.ChangeDisplayedParams(0)
-            self.Log("Removed {0}".format(ModuleName))
-        elif type(self.ActiveItem) == tuple:
-            ParentID, ChildID = self.Framework.GetParentAndChildFromLinkTuple(self.ActiveItem)
-            self.RemoveLink(ParentID, ChildID)
-            self.Framework.UpdateHandlersCodeFiles()
-            self.ActiveItem = None
+        elif type(Item) == tuple:
+            print("Removing link")
+            LinkTuple = Item
+            ParentID, ChildID = self.Framework.GetParentAndChildFromLinkTuple(LinkTuple)
+            self.Framework.RemoveLink(ParentID, ChildID)
 
-            self.RegenerateAvailableSlots()
-            self.DrawFramework()
+            self.ActiveItem = None
+            self.Update()
             self.ChangeDisplayedParams(0)
             self.Log("Removed link from {0} to {1}".format(self.Framework.GetModuleByID(ParentID)['name'], self.Framework.GetModuleByID(ChildID)['name']))
             self.SetDisplayedCodefile(SaveCurrentFile = False)
@@ -556,7 +438,7 @@ class GUI:
             HandlersParamsIndexes = framework_abstractor.FindModuleHandlers(self.ActiveItem['module'])
             FreeSlot = False
             for HandlerIndex in HandlersParamsIndexes:
-                if self.ActiveItem['parameters'][HandlerIndex] == '@' + framework_abstractor.LAMBDA_FUNCTION_FROM.format(self.ActiveItem['module']['parameters'][HandlerIndex]['name']):
+                if self.ActiveItem['parameters'][HandlerIndex] == '@' + framework_abstractor.LAMBDA_FUNCTION_FROM.format(self.ActiveItem['name'], self.ActiveItem['module']['parameters'][HandlerIndex]['name']):
                     FreeSlot = True
                     break
             if not FreeSlot: # This work since, even for a chameleon module, needs a free slot that is actually a lambda function by default
@@ -591,19 +473,11 @@ class GUI:
 
         self.Log("Linking {0} to {1}".format(self.Framework.GetModuleByID(self.WaitingForRoute)['name'], self.ActiveItem['name']))
         self.AddLink(self.WaitingForRoute, self.ActiveItem['id'])
-        if self.DisplayedModulesPositions[self.WaitingForRoute][1] <= self.DisplayedModulesPositions[self.ActiveItem['id']][1]:
-            self.Log('Remapping')
-
-            VOffset = -(self.DisplayedModulesPositions[self.WaitingForRoute][1] - self.VModulesTilingDistance - self.DisplayedModulesPositions[self.ActiveItem['id']][1])
-            LinkTuple = framework_abstractor.GetLinkTuple(self.WaitingForRoute, self.ActiveItem['id'])
-            self.OffsetLinks[LinkTuple] = VOffset
-            AllDescendance = self.GetDescendance(self.ActiveItem['id'])
-            for ID in AllDescendance:
-                self.DisplayedModulesPositions[ID] = self.DisplayedModulesPositions[ID] + np.array([0., -1.]) * self.OffsetLinks[LinkTuple]
 
         self.Framework.UpdateHandlersCodeFiles()
         self.WaitingForRoute = None
-        self.RegenerateAvailableSlots()
+
+        self.Update()
         self.DrawFramework()
         self.ChangeDisplayedParams(0)
         self.WaitingForRoute = None
@@ -624,44 +498,31 @@ class GUI:
     def AddLink(self, ParentID, ChildrenID):
         self.Framework.AddLink(ParentID, ChildrenID)
 
-        if ChildrenID is None:
-            return None
+        #if ChildrenID is None:
+        #    return None
 
-        ParentModule = self.Framework.GetModuleByID(ParentID)
-        HandlersParamsIndexes = framework_abstractor.FindModuleHandlers(ParentModule['module'])
-        for HandlerIndex in HandlersParamsIndexes:
-            if self.Framework.IsFreeSlot(ParentModule, HandlerIndex): # If this link is still free while we added a link, nothing should have changed
-                continue
-            HandlerName = ParentModule['module']['parameters'][HandlerIndex]['name']
-            ChildrenName = ParentModule['parameters'][HandlerIndex].split('@')[1]
-            if ChildrenName in ParentModule['lambda_functions'].keys():
-                print("Found non default lambda function")
-                NonDefaultLambdaFunction = ParentModule['lambda_functions'][ChildrenName]
-                if NonDefaultLambdaFunction['id'] not in self.DisplayedModulesPositions.keys():
-                    print("Unmapped")
-                    for AvailableModulePosition in self.AvailablesModulesPositions:
-                        PossibleParentID = AvailableModulePosition[1]
-                        if PossibleParentID == ParentID:
-                            self.DisplayedModulesPositions[NonDefaultLambdaFunction['id']] = AvailableModulePosition[0]
-                            return None
+        #ParentModule = self.Framework.GetModuleByID(ParentID)
+        #HandlersParamsIndexes = framework_abstractor.FindModuleHandlers(ParentModule['module'])
+        #for HandlerIndex in HandlersParamsIndexes:
+        #    if self.Framework.IsFreeSlot(ParentModule, HandlerIndex): # If this link is still free while we added a link, nothing should have changed
+        #        continue
+        #    HandlerName = ParentModule['module']['parameters'][HandlerIndex]['name']
+        #    ChildrenName = ParentModule['parameters'][HandlerIndex].split('@')[1]
+        #    if ChildrenName in ParentModule['lambda_functions'].keys():
+        #        print("Found non default lambda function")
+        #        NonDefaultLambdaFunction = ParentModule['lambda_functions'][ChildrenName]
+        #        if NonDefaultLambdaFunction['id'] not in self.DisplayedModulesPositions.keys():
+        #            print("Unmapped")
+        #            for AvailableModulePosition in self.AvailablesModulesPositions:
+        #                PossibleParentID = AvailableModulePosition[1]
+        #                if PossibleParentID == ParentID:
+        #                    self.DisplayedModulesPositions[NonDefaultLambdaFunction['id']] = AvailableModulePosition[0]
+        #                    return None
 
-
-    def RemoveLink(self, ParentID, ChildrenID):
-        print("Removing link")
-        LinkTuple = framework_abstractor.GetLinkTuple(ParentID, ChildrenID)
-        if LinkTuple in list(self.OffsetLinks.keys()):
-            AllDescendance = self.GetDescendance(ChildrenID)
-            for ID in AllDescendance:
-                self.DisplayedModulesPositions[ID] = self.DisplayedModulesPositions[ID] - np.array([0., -1.]) * self.OffsetLinks[LinkTuple]
-            del self.OffsetLinks[LinkTuple]
-        self.Framework.RemoveLink(ParentID, ChildrenID)
-        
-        self.Framework.UpdateHandlersCodeFiles()
 
     def AddNewType(self, Type):
         FileName = self.GenerateNewType(Type)
 
-        self.UpdateCodeMenu()
         self.SetDisplayedCodefile(FileName)
 
     def GenerateNewType(self, Type):
@@ -684,7 +545,6 @@ class GUI:
             if not self.FrameworkFileName:
                 return None
         LuaFilename = self.Framework.GenerateBuild()
-        self.UpdateCodeMenu()
         self.SetDisplayedCodefile(LuaFilename)
 
     def GenerateBinary(self):
@@ -732,10 +592,11 @@ class GUI:
                 self.SortedFiles += [File]
         Menu = self.CodeFileMenu['menu']
         Menu.delete(0, "end") 
-        for FileName in self.SortedFiles:
+        for nFile, FileName in enumerate(self.SortedFiles):
             Menu.add_command(label = FileName, command = partial(self.SetDisplayedCodefile, FileName))
 
     def SetDisplayedCodefile(self, Codefile = None, SaveCurrentFile = True):
+        self.UpdateCodeMenu()
         if SaveCurrentFile:
             self.RegisterCurrentCodePad()
         self.CodePad.delete('1.0', Tk.END)
@@ -765,8 +626,157 @@ class GUI:
         self.ConsolePad.see('end')
         self.ConsolePad.config(state=Tk.DISABLED)
 
+    def RegenerateChameleonAvailableSlots(self):
+        self.SelectedAvailableChameleonModulePosition = len(self.AvailablesModulesPositions)
+        AddedTiles = []
+        if not list(self.Framework.ChameleonTiles.keys()):
+            AddedTiles += [(0,0)]
+        for Tile, IDs in list(self.Framework.ChameleonTiles.items()):
+            for nModule, ModuleID in enumerate(IDs):
+                self.DisplayedModulesPositions[ModuleID] = self.GetChameleonModulePosition(Tile, nModule)
+            self.AvailablesModulesPositions += [(self.GetChameleonModulePosition(Tile, nModule+1), Tile[0], Tile[1])]
+
+            NextTiles = [(Tile[0], Tile[1] + 1), (Tile[0] + 1, Tile[1]), (Tile[0] + 1, Tile[1] + 1)]
+            for NextTile in NextTiles:
+                if NextTile not in list(self.Framework.ChameleonTiles.keys()) and NextTile not in AddedTiles:
+                    AddedTiles += [NextTile]
+
+        for Tile in AddedTiles:
+            self.AvailablesModulesPositions += [(self.GetChameleonModulePosition(Tile, 0), Tile[0], Tile[1])]
+    
+    def ExtractArboresence(self):
+        self.Arboresence = {}
+        self.CitedModules = []
+        self.OriginModules = []
+
+        for Module in self.Framework.Modules:
+            if Module['module']['origin'] == 'chameleon':
+                continue
+            if not Module['module']['has_operator']:
+                self.OriginModules += [Module['id']]
+
+            if Module['id'] not in self.Arboresence.keys():
+                self.Arboresence[Module['id']] = {'children':[], 'parents': []}
+                if Module['module']['has_operator']:
+                    self.Arboresence[Module['id']]['parents'] += [-1]
+            HandlersParamsIndexes = framework_abstractor.FindModuleHandlers(Module['module'])
+            for HandlerIndex in HandlersParamsIndexes:
+                if self.Framework.IsFreeSlot(Module, HandlerIndex):
+                    self.Arboresence[Module['id']]['children'] += [-1]
+                    continue
+                HandlerName = Module['module']['parameters'][HandlerIndex]['name']
+                HandlerParamFuncName = framework_abstractor.LAMBDA_FUNCTION_FROM.format(Module['name'], HandlerName)
+                ChildrenName = Module['parameters'][HandlerIndex].split('@')[-1]
+                ChildrenModule = self.Framework.GetModuleByName(ChildrenName)
+                self.Arboresence[Module['id']]['children'] += [ChildrenModule['id']]
+                if ChildrenModule['id'] not in self.Arboresence.keys():
+                    self.Arboresence[ChildrenModule['id']] = {'children':[], 'parents': []}
+                    if ChildrenModule['module']['has_operator']:
+                        self.Arboresence[ChildrenModule['id']]['parents'] += [-1]
+                self.Arboresence[ChildrenModule['id']]['parents'] += [Module['id']]
+                if ChildrenModule['id'] not in self.CitedModules:
+                    self.CitedModules += [ChildrenModule['id']]
+        print("Arbo : ", self.Arboresence)
+
+    def RegenerateDisplayPositions(self):
+        self.ExtractArboresence()
+        
+        self.DisplayedModulesPositions = {}
+        self.AvailablesModulesPositions = []
+
+        if not [Module['id'] for Module in self.Framework.Modules if Module['module']['origin'] != 'chameleon']:
+            self.AvailablesModulesPositions += [(np.array([0., 0.]), None, None)]
+            self.ChameleonInitialTilePosition = np.array([0., -self.VModulesTilingDistance])
+            self.SelectedAvailableModulePosition = 0
+            self.SelectedAvailableChameleonModulePosition = len(self.AvailablesModulesPositions)
+            self.RegenerateChameleonAvailableSlots()
+            return None
+
+        AskedHeights = {}
+        for ModuleID in self.OriginModules:
+            AskedHeights[ModuleID] = 0
+        if not AskedHeights:
+            for ModuleID in self.Arboresence.keys():
+                if ModuleID in self.CitedModules:
+                    continue
+                AskedHeights[ModuleID] = 0
+        
+        nLoops = {key:0 for key in list(self.Arboresence.keys())}
+        while not len(AskedHeights.keys()) == len(self.Arboresence.keys()):
+            for ModuleID in self.Arboresence.keys():
+                if ModuleID in AskedHeights.keys():
+                    continue
+                nLoops[ModuleID] += 1
+                ParentMissing = False
+                for ParentID in self.Arboresence[ModuleID]['parents']:
+                    if ParentID == -1:
+                        continue
+                    LowestHeight = 0.
+                    if ParentID in AskedHeights.keys():
+                        LowestHeight = AskedHeights[ParentID] - self.VModulesTilingDistance
+                    else:
+                        ParentMissing = True
+                        break
+                if (self.Arboresence[ModuleID]['parents'].count(-1) == len(self.Arboresence[ModuleID]['parents']) or ParentMissing):
+                    if nLoops[ModuleID] < 100:
+                        continue
+                    else:
+                        if not self.Arboresence[ModuleID]['children']:
+                            LowestHeight = max(list(AskedHeights.values()))
+                        else:
+                            LowestHeight = min(list(AskedHeights.values()))
+                            for ChildrenID in self.Arboresence[ModuleID]['children']:
+                                if ChildrenID in AskedHeights.keys():
+                                    LowestHeight = max(LowestHeight, AskedHeights[ChildrenID] + self.VModulesTilingDistance)
+                AskedHeights[ModuleID] = LowestHeight
+
+        Heights = list(AskedHeights.values())
+        Heights += [min(Heights) - self.VModulesTilingDistance, max(Heights) + self.VModulesTilingDistance]
+        SortedIndexes = np.argsort(Heights)
+        print(SortedIndexes)
+
+        self.ChameleonInitialTilePosition = np.array([0., min(Heights) - self.VModulesTilingDistance])
+        
+        for LocalIndex in reversed(SortedIndexes):
+            HeightConsidered = Heights[LocalIndex]
+            print(LocalIndex, " at ", HeightConsidered)
+            Items = []
+            for ModuleID in self.Arboresence.keys():
+                if abs(AskedHeights[ModuleID] - HeightConsidered) < self.VModulesTilingDistance/2:
+                    Items += [ModuleID]
+                if -1 in self.Arboresence[ModuleID]['parents'] and abs(AskedHeights[ModuleID] + self.VModulesTilingDistance - HeightConsidered) < self.VModulesTilingDistance/2:
+                    Items += [(np.array([0., AskedHeights[ModuleID] + self.VModulesTilingDistance]), None, ModuleID)]
+                if -1 in self.Arboresence[ModuleID]['children'] and abs(AskedHeights[ModuleID] - self.VModulesTilingDistance - HeightConsidered) < self.VModulesTilingDistance/2:
+                    for i in range(self.Arboresence[ModuleID]['children'].count(-1)):
+                        Items += [(np.array([0., AskedHeights[ModuleID] - self.VModulesTilingDistance]), ModuleID, None)]
+
+            print("Items : ", Items)
+            for nItem, Item in enumerate(Items):
+                X = self.HModulesTilingDistance * (-len(Items) / 2. + nItem + 0.5)
+                if type(Item) == int:
+                    if Item in self.DisplayedModulesPositions.keys():
+                        continue
+                    self.DisplayedModulesPositions[Item] = np.array([X, AskedHeights[Item]])
+                else:
+                    for AddedAvlbPos in self.AvailablesModulesPositions:
+                        if Item[1:] == AddedAvlbPos[1:]:
+                            continue
+                    Item[0][0] = X
+                    self.AvailablesModulesPositions += [Item]
+
+                    self.ChameleonInitialTilePosition[0] = min(self.ChameleonInitialTilePosition[0], X)
+
+        self.RegenerateChameleonAvailableSlots()
+
+        print(self.AvailablesModulesPositions)
+        print(self.DisplayedModulesPositions)
+
+    def Update(self):
+        self.RegenerateDisplayPositions()
+        self.DrawFramework()
+        self.ChangeDisplayedParams(0)
+
     def DrawFramework(self):
-        #self.Log("Drawing...")
         minValues = np.array([0., 0.])
         maxValues = np.array([0., 0.])
 
@@ -823,7 +833,7 @@ class GUI:
             ModuleName = Module['name']
             ModuleEvFields = Module['module']['ev_fields']
             ModuleOutputFields = Module['ev_outputs']
-        elif Module.__class__ == framework_abstractor.LambdaFunction:
+        elif Module.__class__ == framework_abstractor.LambdaFunctionClass:
             ModulePosition = self.DisplayedModulesPositions[Module['id']]
             ModuleName = Module['name']
             ModuleEvFields = []
@@ -864,7 +874,7 @@ class GUI:
                 alpha = 0.4
             ChildrenModule = self.Framework.GetModuleByID(AvailablePos[2])
             Start = AvailablePos[0] + np.array([0., -1.]) * self.ModulesDiameter/2
-            End = self.DisplayedModulesPositions[AvailablePos[2]] + np.array([-1., 1.]) * self.ModulesDiameter/2 + np.array([1., 0.]) * self.ModulesDiameter * (1.)/(len(ChildrenModule['parent_ids'])+2.)
+            End = self.DisplayedModulesPositions[AvailablePos[2]] + np.array([-1., 1.]) * self.ModulesDiameter/2 + np.array([1., 0.]) * self.ModulesDiameter * (len(ChildrenModule['parent_ids'])+1.)/(len(ChildrenModule['parent_ids'])+2.)
             YStep = (Start + End)/2
             self.DisplayAx.plot([Start[0], Start[0]], [Start[1], YStep[1]], ls = Style, color = Color, alpha = alpha)
             self.DisplayAx.plot([Start[0], End[0]], [YStep[1], YStep[1]], ls = Style, color = Color, alpha = alpha)
@@ -887,7 +897,7 @@ class GUI:
                 Links += [(Module['id'], ChildrenFunction['id'], 0.5)]
             else:
                 ChildrenModule = self.Framework.GetModuleByName(ChildrenName)
-                Links += [(Module['id'], ChildrenModule['id'], (ChildrenModule['parent_ids'].index(Module['id'])+1.+ChildrenModule['module']['has_operator'])/(len(ChildrenModule['parent_ids'])+1.+ChildrenModule['module']['has_operator']))]
+                Links += [(Module['id'], ChildrenModule['id'], 1.-(ChildrenModule['parent_ids'].index(Module['id'])+1.+ChildrenModule['module']['has_operator'])/(len(ChildrenModule['parent_ids'])+1.+ChildrenModule['module']['has_operator']))]
 
         for nLink, Link in enumerate(Links):
             if Link[1] >= 0:
@@ -935,6 +945,7 @@ class GUI:
         # First check if name is ok and available
         if AddedParamName == 'Name':
             AskedName = StringVar.get()
+            CursorIndex = self.DisplayedParams[DisplayIndex][-1].index(Tk.INSERT)
             if not self._AddedParamValidity(AddedParamName, AskedName):
                 self.DisplayedParams[DisplayIndex][0]['foreground'] = 'red'
                 if not self.ActiveItem is None:
@@ -943,16 +954,15 @@ class GUI:
                 self.DisplayedParams[DisplayIndex][0]['foreground'] = 'black'
 
             if not self.ActiveItem is None and type(self.ActiveItem) == dict:
-                PreviousName = self.ActiveItem['name']
-                self.ActiveItem['name'] = AskedName
-                for ParentID in self.ActiveItem['parent_ids']:
-                    if not ParentID is None:
-                        for Module in self.Framework.Modules:
-                            if Module['id'] == ParentID:
-                                for nParam, Param in enumerate(Module['parameters']):
-                                    if '@' in Param and Param.split('@')[1] == PreviousName:
-                                        Module['parameters'][nParam] = '@' + AskedName
+                self.Framework.ChangeModuleName(self.ActiveItem, AskedName)
+
                 self.DrawFramework()
+                self.Update()
+                self.CurrentCodeFile = self.ActiveItem['name'] + framework_abstractor.HANDLERS_FILE_NAME_SUFFIX
+                self.SetDisplayedCodefile(self.CurrentCodeFile, SaveCurrentFile = False)
+                self.DisplayedParams[DisplayIndex][-1].focus_set()
+                self.DisplayedParams[DisplayIndex][-1].icursor(CursorIndex)
+
             elif self.ActiveItem is None:
                 self.Framework.Data['name'] = AskedName
                 if not AskedName:
@@ -972,10 +982,9 @@ class GUI:
         else:
             self.DisplayedParams[DisplayIndex][0]['foreground'] = 'green'
 
-        self.Framework.SetType(self.ActiveItem, self.AvailableTypes[TypeName])
+        self.Framework.SetType(self.ActiveItem, self.AvailableTypes[TypeName], [])
 
         self.DrawFramework()
-        self.UpdateCodeMenu()
         self.SetDisplayedCodefile(SaveCurrentFile = False)
 
 
@@ -1018,7 +1027,7 @@ class GUI:
             ModuleParameters = []
             ModuleTemplates = []
 
-        elif self.ActiveItem.__class__ == framework_abstractor.LambdaFunction:
+        elif self.ActiveItem.__class__ == framework_abstractor.LambdaFunctionClass:
             AddedParams = self._GetModuleAddedParams()
             ModuleParameters = []
             ModuleTemplates = []
@@ -1057,7 +1066,7 @@ class GUI:
                 CBFunction = self._OnAddedParameterChange
                 if 'default' in Field.keys():
                     StrVar.set(Field['default'])
-                if type(self.ActiveItem) == framework_abstractor.LambdaFunction:
+                if type(self.ActiveItem) == framework_abstractor.LambdaFunctionClass:
                     EntryEnabled = False
 
             elif Field in ModuleParameters:
