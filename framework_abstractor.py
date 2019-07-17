@@ -6,9 +6,11 @@ import tarsier_scrapper
 import sepia_scrapper
 
 HANDLERS_FILE_NAME_SUFFIX = ' Handlers Functions'
-LAMBDA_FUNCTION_FROM = '{0} -> {1}_function'
+LAMBDA_FUNCTION_FROM = '{1}_function_for_{0}'
+TYPES_DEF_FILE = "Defined events types"
 
-USER_DEFINED = 'lambda'
+NEW_TYPE_DEFAULT = "type_{0}"
+USER_DEFINED = 'user_defined'
 
 CPP_TAB = 4*' '
 LUA_TAB = 4*' '
@@ -18,7 +20,7 @@ def W(Value):
 
 class FrameworkAbstraction:
     def __init__(self, Data = None, LogFunction = None):
-        self.Data = {'modules': [], 'name': '', 'events_types': [], 'files': {'Documentation':{'data': '~ Generated with Beaver ~', 'type': 'documentation'}}, 'user_defined': [], 'links_types': {}, 'chameleon_tiles': {}}
+        self.Data = {'modules': [], 'name': '', 'events_types': [], 'files': {'Documentation':{'data': '~ Generated with Beaver ~', 'type': 'documentation'}}, 'user_defined_types': {}, 'links_types': {}, 'chameleon_tiles': {}}
         self.NoneType = {'name': '?', 'fields':[], 'origin':'', 'value': None}
         self.ModulesIDs = []
         self.HasChameleon = False
@@ -31,6 +33,7 @@ class FrameworkAbstraction:
         self.Files = self.Data['files'] # Abstracted Files, not actual ones
         self.LinksTypes = self.Data['links_types']
         self.ChameleonTiles = self.Data['chameleon_tiles']
+        self.UserDefinedTypes = self.Data['user_defined_types']
         
         if LogFunction is None:
             self.LogFunction = sys.stdout.write
@@ -391,6 +394,30 @@ class FrameworkAbstraction:
             return None
         self.UpdateHandlersCodeFiles()
 
+    def AddNewType(self):
+        N = 0
+        while NEW_TYPE_DEFAULT.format(N) in self.UserDefinedTypes.keys():
+            N += 1
+        NewTypeName = NEW_TYPE_DEFAULT.format(N)
+        self.UserDefinedTypes[NewTypeName] = EventTypeClass(NewTypeName)
+
+        self.WriteTypesFile()
+
+    def RemoveType(self, TypeName):
+#TODO remove references to this type in modules
+        del self.UserDefinedTypes[TypeName]
+
+    def WriteTypesFile(self):
+        if not self.UserDefinedTypes:
+            del self.Files[TYPES_DEF_FILE]
+            return None
+        
+        self.Files[TYPES_DEF_FILE] = {'data': '', 'type': 'code'}
+
+        for TypeName in sorted(self.UserDefinedTypes.keys()):
+            self.Files[TYPES_DEF_FILE]['data'] += self.UserDefinedTypes[TypeName]['data']
+            self.Files[TYPES_DEF_FILE]['data'] += '\n'
+
     def UpdateHandlersCodeFiles(self):
         for Module in self.Modules:
             if Module['module']['origin'] != 'chameleon' and Module['module']['origin'] != USER_DEFINED:
@@ -433,6 +460,14 @@ class FrameworkAbstraction:
 
     def RemoveLambdaFunction(self, FuncName):
         del self.Files[FuncName]
+
+    def ModuleNameValidity(self, Module, NewName):
+        if NewName == '':
+            return False
+        for ComparedModule in self.Modules:
+            if ComparedModule['name'] == NewName and Module['id'] != ComparedModule['id']:
+                return False
+        return True
 
     def WellDefinedModule(self, Module):
         for nModule, ParameterAsked in enumerate(Module['module']['parameters']):
@@ -493,7 +528,7 @@ class FrameworkAbstraction:
             return Tuple[0], Tuple[1]
 
     def GenerateCode(self):
-        self.Writer.WriteCode(self.Data)
+        self.Writer.WriteCode(self)
 
     def GenerateBuild(self):
         self.Writer.BuildDirectory(self.Data['name'], force = True)
@@ -542,7 +577,41 @@ def LoadFile(Filename):
         Lines = f.readlines()
     return ''.join(Lines)
 
-class LambdaFunctionClass:
+class SimiliDict:
+    def __init__(self):
+        None
+    def __getitem__(self, key):
+        if key == 'data':
+            self.Write()
+        return self.__dict__[key]
+    def __setitem__(self, key, value):
+        self.__dict__[key] = value
+    def keys(self):
+        return self.__dict__.keys()
+    def values(self):
+        return self.__dict__.values()
+    def items(self):
+        return self.__dict__.items()
+
+class EventTypeClass(SimiliDict):
+    def __init__(self, Name, Value = None, Fields = [], Origin = USER_DEFINED):
+        self.name = Name
+        self.value = Value
+        self.fields = Fields
+        self.origin = Origin
+        self.data = ''
+        self.EVENT_TYPE_INTRO = '// #arl_{0}\n'
+        self.ReferencedByModuleIDs = []
+
+    def Write(self):
+        self.data = self.EVENT_TYPE_INTRO.format(self.name)
+        self.data += 'struct {0}'.format(self.name) + ' {\n'
+        for field in self.fields:
+            if field['type'].strip() or field['name'].strip():
+                self.data += CPP_TAB + field['type'] + ' ' + field['name'] + ';\n'
+        self.data += '}\n'
+
+class LambdaFunctionClass(SimiliDict):
     def __init__(self, ID, Name, IntroductionLine = '', InputFields = [], RequiredFieldsCommentLine = '', GlobalContext = False, ReturnedObject = ''):
         self.id = ID
         self.name = Name
@@ -567,23 +636,6 @@ class LambdaFunctionClass:
         
         self.AUTO_WRITTEN_LINE_COMMENT = ' // #arl{0}'
 
-    def __getitem__(self, key):
-        if key == 'data':
-            self.Write()
-        return self.__dict__[key]
-
-    def __setitem__(self, key, value):
-        print("Writing code in lambda function")
-        self.__dict__[key] = value
-
-    def keys(self):
-        return self.__dict__.keys()
-
-    def values(self):
-        return self.__dict__.values()
-
-    def items(self):
-        return self.__dict__.items()
     def Write(self):
         self.data = self.intro_comment_line
         self.data += self.req_fields_comment_line
@@ -605,7 +657,7 @@ class LambdaFunctionClass:
                     TryName = Field['name'].strip().strip('_')
                 else:
                     TryName = '?'
-                self.data += CPP_TAB + Field['type']+' '+TryName+', // ' + Field['name'] + '\n'
+                self.data += CPP_TAB + Field['type']+' '+TryName+', // from variable ' + Field['name'] + '\n'
         self.data += ')' + self.returned_object + '{\n'
         for auto_line_key in sorted(self.auto_written_lines.keys()):
             auto_line = self.auto_written_lines[auto_line_key] + self.AUTO_WRITTEN_LINE_COMMENT.format(auto_line_key)
@@ -639,6 +691,7 @@ class CodeWriterClass:
         self.SYSTEM_CONFIGS['windows'] = {'files': ['.clang-format']}
 
         self.CPP_TAB = CPP_TAB
+        self.HPP_EXTENSION = '.hpp'
 
         if LogFunction is None:
             self.LogFunction = sys.stdout.write
@@ -707,14 +760,103 @@ class CodeWriterClass:
         self.LogFunction("Generated Lua file")
         return ProjectDir + 'premake4.lua'
     
-    def _AddIncludeModule(self, File, ModuleOrigin, ModuleFile):
-        File.write("#include \"../" + self.THIRD_PARTY_DIRECTORY + ModuleOrigin + "source/" + ModuleFile + "\"\n")
+    def _Write(self, string):
+        string = string.strip('\n')
+        for Line in string.split('\n'):
+            self.CppFile.write(self.NTabs * self.CPP_TAB + Line + '\n')
+    def _AddRawData(self, Data):
+        self._Write(Data)
 
     def WriteCode(self, Framework):
-        ProjectName = Framework['name']
+        ProjectName = Framework.Data['name']
         ProjectDir = self._GetProjectDir(ProjectName)
-        with open(ProjectDir + self.SOURCE_DIRECTORY + ProjectName + '.cpp', 'w') as CppFile:
-            _AddIncludeModule(CppFile, 'sepia/', 'sepia.hpp')
+        self.NTabs = 0
+        self.IncludeLines = []
+        self.WrittenModulesIDs = []
+        with open(ProjectDir + self.SOURCE_DIRECTORY + ProjectName + '.cpp', 'w') as self.CppFile:
+            self._AddIncludeModule('sepia/', 'sepia.hpp')
+            for Module in Framework.Modules:
+                if Module['module']['origin'] == 'tarsier':
+                    self._AddIncludeModule('tarsier/', Module['module']['name']+self.HPP_EXTENSION)
+
+            if True or Framework.ChameleonTiles:
+                self._AddQtHeaders()
+            
+            self._JumpLines(2)
+            for Type in Framework.UserDefinedTypes.values():
+                if True or Type.ReferencedByModuleIDs: # TODO : set to true to make sure writing is ok
+                    self._AddRawData(Type['data'])
+            if Framework.UserDefinedTypes:
+                self._JumpLines(2)
+
+            self._StartMain()
+
+            for Module in Framework.Modules:
+                for LambdaFunctionName, LambdaFunction in Module['lambda_functions'].items():
+                    self._AddLambdaFunction(LambdaFunctionName, LambdaFunction['data'])
+
+            while len(self.WrittenModulesIDs) != len(Framework.Modules):
+                for Module in Framework.Modules:
+                    if Module['id'] in self.WrittenModulesIDs:
+                        continue
+                    self._WriteModule(Module)
+
+            self._CloseMain()
+    def _AddIncludeModule(self, ModuleOrigin, ModuleFile):
+        Line = "#include \"../" + self.THIRD_PARTY_DIRECTORY + ModuleOrigin + "source/" + ModuleFile + "\"\n"
+        if Line not in self.IncludeLines:
+            self._Write("#include \"../" + self.THIRD_PARTY_DIRECTORY + ModuleOrigin + "source/" + ModuleFile + "\"\n")
+            self.IncludeLines += [Line]
+
+    def _AddQtHeaders(self):
+         self._Write("#include <QtGui/QGuiApplication>\n")
+         self._Write("#include <QtQml/QQmlApplicationEngine>\n")
+         self._Write("#include <QtQml/QQmlContext>\n")
+
+    def _JumpLines(self, N):
+        for i in range(N):
+            self.CppFile.write("\n")
+
+    def _StartMain(self):
+        self._Write("int main(int argc, char* argv[]) {\n")
+        self.NTabs += 1
+    def _CloseMain(self):
+        self.NTabs -= 1
+        self._Write("}\n")
+
+    def _WriteModule(self, Module):
+        self.WrittenModulesIDs += [Module['id']]
+        if Module['module']['origin'] != USER_DEFINED:
+            CppModuleName = Module['module']['origin'] + "::" + Module['module']['name']
+        else:
+            None
+        DefLine = "auto {0} = {1}".format(Module['name'], CppModuleName)
+        WrittenTemplates = [Template for Template in Module['templates'] if '#Deduced' not in Template]
+        print(WrittenTemplates)
+        if WrittenTemplates:
+            DefLine += '<'
+            DefLine += ', '.join(WrittenTemplates)
+            DefLine += '>'
+        DefLine += '('
+        self._Write(DefLine)
+        self.NTabs += 1
+
+        ParametersLines = ''
+        for Parameter in Module['parameters']:
+            if not Parameter:
+                ParametersLines += ', // Argument missing\n'
+                continue
+            if Parameter[0] != '@':
+                ParametersLines += Parameter
+            else:
+                ParametersLines += 'std::move({0})'.format(Parameter.split('@')[-1])
+            ParametersLines += ',\n'
+        ParametersLines = ParametersLines[:-2]
+        self._Write(ParametersLines)
+
+
+    def _AddLambdaFunction(self, Name, Data):
+        self._Write("auto {0} = ".format(Name)+Data.strip('\n')+';')
 
 def CreateCommentsForRequieredFields(Fields):
     if Fields:

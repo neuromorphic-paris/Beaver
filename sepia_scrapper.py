@@ -136,6 +136,8 @@ def ExtractArguments(Lines, StartLine):
             print(UsefulPart)
             print("")
             return []
+        if Parameters[-1]['name'] == 'handle_exception':
+            Parameters[-1]['default'] = "[](std::exception_ptr) {}"
     return Parameters
 
 def ExtractTemplates(Lines, FuncStartLine):
@@ -203,6 +205,7 @@ def ScrapSepiaFile():
         Modules[funcName]['ev_outputs'] = {}
         Modules[funcName]['has_event_to'] = False
     Types = GetSepiaTypes(Lines)
+
     return Modules, Types
 
 if __name__ == '__main__':

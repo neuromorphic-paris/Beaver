@@ -14,7 +14,8 @@ from tkinter import filedialog as FileDialog
 from tkinter import font as tkFont
 
 import os
-import json
+#import json
+import pickle
 from functools import partial
 matplotlib.use("TkAgg")
 
@@ -55,11 +56,13 @@ class GUI:
         for ModuleName, Module in list(ChameleonModules.items()):
             self.AvailableModules[ModuleName] = Module
 
-        self.AvailableTypes = {self.Framework.NoneType['name']: self.Framework.NoneType}
+        self.BaseTypes = {self.Framework.NoneType['name']: self.Framework.NoneType}
         for TypeName, Type in list(SepiaTypes.items()):
-            self.AvailableTypes[TypeName] = Type
+            self.BaseTypes[TypeName] = Type
 
-        self.UserDefinedVariableTypes = ['Struct', 'Packed struct', 'Lambda Function']
+        self.AvailableTypes = dict(self.BaseTypes)
+
+        self.UserDefinedVariableTypes = ['Event type']
         self.MenuParams = {'event_stream_type': (self.AvailableTypes, self._OnEventTypeTemplateChange, self._OnNewEventTypeTemplate), 'Event': (self.AvailableTypes, self._OnEventTypeTemplateChange, self._OnNewEventTypeTemplate)}
 
         self.MainWindow = Tk.Tk()
@@ -81,7 +84,7 @@ class GUI:
         newmenu = Tk.Menu(insertmenu)
         insertmenu.add_cascade(label = "New", menu = newmenu)
         for Type in self.UserDefinedVariableTypes:
-            newmenu.add_command(label=Type, command=partial(self.AddNewType, Type))
+            newmenu.add_command(label=Type, command=partial(self.GenerateNewType, Type))
         insertmenu.add_separator()
 
         tarsiermenu = Tk.Menu(insertmenu)
@@ -162,6 +165,10 @@ class GUI:
         self.CodeFileMenu.grid(row = 0, column = 0)
         self.CodePad = ScrolledText.ScrolledText(self.CodeFrame, width=120, height=40, bg = 'white')
         self.CodePad.bind("<<TextModified>>", self._onCodeModification)
+        def _tab(arg):
+            self.CodePad.insert(Tk.INSERT, framework_abstractor.CPP_TAB)
+            return 'break'
+        self.CodePad.bind("<Tab>", _tab)
         self.CodePad.grid(row = 1, column = 0)
         self.SortedFiles = []
         self.SetDisplayedCodefile(self.CurrentCodeFile, SaveCurrentFile = False)
@@ -207,6 +214,11 @@ class GUI:
         if MessageBox.askokcancel("Quit", "Do you really want to quit?"):
             self.MainWindow.quit()
             self.MainWindow.destroy()
+
+    def UpdateAvailableTypes(self):
+        self.AvailableTypes = dict(self.BaseTypes)
+        for TypeName in self.Framework.UserDefinedTypes.keys():
+            self.AvailableTypes[TypeName] = self.Framework.UserDefinedTypes[TypeName]
 
     def _OnDisplayClick(self, event):
         if not self.Framework.Modules:
@@ -275,33 +287,33 @@ class GUI:
     def save_command(self):
         self.RegisterCurrentCodePad()
         if self.FrameworkFileName:
-            with open(self.FrameworkFileName, "w") as file:
-                if not file is None:
-                    json.dump(self.Framework.Data, file)
+            with open(self.FrameworkFileName, "w") as f:
+                if not f is None:
+                    pickle.dump(self.Framework.Data, f, protocol=pickle.HIGHEST_PROTOCOL)
                     self.Log("Saved.")
                 else:
-                    self.Log("Something went wrong while saving project.")
+                    self.Error("Something went wrong while saving project.")
         else:
             self.saveas_command()
 
     def saveas_command(self):
         self.RegisterCurrentCodePad()
-        with FileDialog.asksaveasfile(mode='w', initialdir = PROJECTS_DIR, initialfile = self.Framework.Data['name'], defaultextension='.json', title = "Save as...", filetypes=[("JSON","*.json")]) as file:
-            if not file is None:
-                NewName =  file.name.split('/')[-1].split('.json')[0]
+        with FileDialog.asksaveasfile(mode='w', initialdir = PROJECTS_DIR, initialfile = self.Framework.Data['name'], defaultextension='.json', title = "Save as...", filetypes=[("JSON","*.json")]) as f:
+            if not f is None:
+                NewName =  f.name.split('/')[-1].split('.json')[0]
                 if not self.Framework.Data['name'] or (NewName != self.Framework.Data['name'] and MessageBox.askyesno("Name changed", "Do you want to change project name from \n{0} \nto {1} ?".format(self.Framework.Data['name'], NewName))):
                     self.Framework.Data['name'] = NewName
                     self.MainWindow.title('Beaver - {0}'.format(self.Framework.Data['name']))
 
-                json.dump(self.Framework.Data, file)
-                self.FrameworkFileName = file.name
+                #pickle.dump(self.Framework.Data, f)
+                self.FrameworkFileName = f.name
                 self.Log("Saved.")
         self.ChangeDisplayedParams(0)
         
     def open_command(self):
         with FileDialog.askopenfile(parent=self.MainWindow,mode='rb', initialdir = PROJECTS_DIR, title='Open...', defaultextension='.json', filetypes=[("JSON","*.json")]) as file:
             if file != None:
-                Data = json.load(file)
+                Data = pickle.load(file)
                 self.Framework = framework_abstractor.FrameworkAbstraction(Data, self.Log)
                 self.FrameworkFileName = file.name
                 self.MainWindow.title('Beaver - {0}'.format(self.Framework.Data['name']))
@@ -433,7 +445,7 @@ class GUI:
         
         if self.WaitingForRoute is None:
             if self.ActiveItem['module']['origin'] == 'chameleon':
-                self.Log('Chameleon modules cannot output events.')
+                self.Error('Chameleon modules cannot output events.')
                 return None
             HandlersParamsIndexes = framework_abstractor.FindModuleHandlers(self.ActiveItem['module'])
             FreeSlot = False
@@ -442,6 +454,7 @@ class GUI:
                     FreeSlot = True
                     break
             if not FreeSlot: # This work since, even for a chameleon module, needs a free slot that is actually a lambda function by default
+                self.Error("Selected module cannot have any more outputs")
                 return None
             self.WaitingForRoute = self.ActiveItem['id'] # Will be the parent
             self.Log('Selected a child module to link to...')
@@ -450,12 +463,12 @@ class GUI:
 
         if not self.ActiveItem['module']['has_operator']:
             self.WaitingForRoute = None
-            self.Log('Selected module cannot receive more inputs')
+            self.Error('Selected module cannot receive any input')
             return None
     
         if self.ActiveItem['id'] == self.WaitingForRoute:
             self.WaitingForRoute = None
-            self.Log('Cannot link a module to itself')
+            self.Error('Cannot link a module to itself')
             return None
 
         NewParentsIDs = self.Framework.GetModuleByID(self.WaitingForRoute)['parent_ids']
@@ -466,7 +479,7 @@ class GUI:
                     if OlderParentID not in OlderGen:
                         OlderGen += [OlderParentID]
                         if OlderParentID == self.ActiveItem['id']:
-                            self.Log('Cannot link create circular dependancies')
+                            self.Error('Cannot link create circular dependancies')
                             self.WaitingForRoute = None
                             return None
                 NewParentsIDs = list(OlderGen)
@@ -520,23 +533,16 @@ class GUI:
         #                    return None
 
 
-    def AddNewType(self, Type):
-        FileName = self.GenerateNewType(Type)
-
-        self.SetDisplayedCodefile(FileName)
-
     def GenerateNewType(self, Type):
-        if Type == 'Struct':
-            None
-            #File = 'struct {\n};'
-        elif Type == 'Packed struct':
-            None
-            #File = 'SEPIA_PACK(struct {\n});'
-        elif Type == 'Lambda Function':
-            None
-        return FileName
+        if Type == 'Event type':
+            self.Framework.AddNewType()
+            self.SetDisplayedCodefile(framework_abstractor.TYPES_DEF_FILE, SaveCurrentFile = False)
+            self.ActiveItem = framework_abstractor.TYPES_DEF_FILE
+            self.Update(Full = False)
 
     def GenerateCode(self):
+        if not self.Framework.Data['name'] or not self.FrameworkFileName:
+            self.saveas_command()
         self.Framework.GenerateCode()
 
     def GenerateBuild(self):
@@ -600,15 +606,29 @@ class GUI:
         if SaveCurrentFile:
             self.RegisterCurrentCodePad()
         self.CodePad.delete('1.0', Tk.END)
+        RequestedUpdate = False
         if not Codefile is None:
+            if Codefile == framework_abstractor.TYPES_DEF_FILE:
+                self.ActiveItem = Codefile
+                RequestedUpdate = True
+            else:
+                if self.CurrentCodeFile == framework_abstractor.TYPES_DEF_FILE:
+                    self.ActiveItem = None
+                    RequestedUpdate = True
             self.CurrentCodeFile = Codefile
             self.CodeFileVar.set(self.CurrentCodeFile)
         if self.CurrentCodeFile in list(self.Framework.Files.keys()):
             self.CodePad.insert(Tk.END, self.Framework.Files[self.CurrentCodeFile]['data'])
             self.CurrentCodeType = self.Framework.Files[self.CurrentCodeFile]['type']
-        else:
+        elif self.CurrentCodeFile in list(self.TempFiles.keys()):
             self.CodePad.insert(Tk.END, self.TempFiles[self.CurrentCodeFile])
             self.CurrentCodeType = 'tmp' 
+        else:
+            self.CurrentCodeFile = self.DefaultFile
+            self.CodePad.insert(Tk.END, self.Framework.Files[self.CurrentCodeFile]['data'])
+            self.CurrentCodeType = self.Framework.Files[self.CurrentCodeFile]['type']
+        if RequestedUpdate:
+            self.Update(Full = False)
 
     def _onCodeModification(self):
         None
@@ -625,6 +645,11 @@ class GUI:
             self.ConsolePad.insert(Tk.END, CurrentText)
         self.ConsolePad.see('end')
         self.ConsolePad.config(state=Tk.DISABLED)
+
+    def Warning(self, string):
+        self.Log("WARNING : "+string)
+    def Error(self, string):
+        self.Log("Error : "+string)
 
     def RegenerateChameleonAvailableSlots(self):
         self.SelectedAvailableChameleonModulePosition = len(self.AvailablesModulesPositions)
@@ -766,15 +791,17 @@ class GUI:
 
                     self.ChameleonInitialTilePosition[0] = min(self.ChameleonInitialTilePosition[0], X)
 
+        self.SelectedAvailableModulePosition = len(self.AvailablesModulesPositions)-1
         self.RegenerateChameleonAvailableSlots()
 
         print(self.AvailablesModulesPositions)
         print(self.DisplayedModulesPositions)
 
-    def Update(self):
-        self.RegenerateDisplayPositions()
+    def Update(self, Full = True):
+        if Full:
+            self.RegenerateDisplayPositions()
         self.DrawFramework()
-        self.ChangeDisplayedParams(0)
+        self.ChangeDisplayedParams(None)
 
     def DrawFramework(self):
         minValues = np.array([0., 0.])
@@ -940,7 +967,6 @@ class GUI:
         self.DisplayedParams[DisplayIndex][0]['foreground'] = self.GetParamDisplayColor(ParamIndex)
 
     def _OnAddedParameterChange(self, StringVar, ParamIndex, DisplayIndex):
-        print("Added : {0}, {1}".format(ParamIndex, DisplayIndex))
         AddedParamName = self._GetBlankAddedParams()[ParamIndex]['name']
         # First check if name is ok and available
         if AddedParamName == 'Name':
@@ -987,18 +1013,18 @@ class GUI:
         self.DrawFramework()
         self.SetDisplayedCodefile(SaveCurrentFile = False)
 
-
     def _OnNewEventTypeTemplate(self, StringVar, TemplateIndex, DisplayIndex):
-        print("Asking for new type")
+        self.Framework.AddNewType()
+        self.SetDisplayedCodefile(framework_abstractor.TYPES_DEF_FILE, SaveCurrentFile = False)
+        self.ActiveItem = framework_abstractor.TYPES_DEF_FILE
+        self.Update()
 
     def _AddedParamValidity(self, AddedParamName, AddedParamValue):
         if AddedParamName == 'Name':
             if AddedParamValue == '':
                 return False
-            for Module in self.Framework.Modules:
-                if Module['name'] == AddedParamValue and (self.ActiveItem is None or type(self.ActiveItem) == tuple or Module['id'] != self.ActiveItem['id']):
-                    return False
-            return True
+            if type(self.ActiveItem) == dict:
+                return self.Framework.ModuleNameValidity(self.ActiveItem, AddedParamValue)
 
     def _GetModuleAddedParams(self):
         return [{'name': 'Name', 'type': 'str', 'default': self.ActiveItem['name']}]
@@ -1010,8 +1036,8 @@ class GUI:
         return []
 
     def ChangeDisplayedParams(self, Mod):
-        for Trio in self.DisplayedParams:
-            for Field in Trio:
+        for Line in self.DisplayedParams:
+            for Field in Line:
                 Field.destroy()
         if self.ActiveItem is None:
             AddedParams = self._GetBlankAddedParams()
@@ -1032,6 +1058,14 @@ class GUI:
             ModuleParameters = []
             ModuleTemplates = []
 
+        elif type(self.ActiveItem) == str:
+            if self.ActiveItem == framework_abstractor.TYPES_DEF_FILE:
+                return self.DisplayTypesParameters(Mod)
+
+        else:
+            print("Not implemented ActiveItem type")
+            return None
+
         ItemsFields = []
         if AddedParams or ModuleParameters:
             ItemsFields += [{'name':'Parameter', 'type': 'Type', 'value': 'Value'}]
@@ -1043,7 +1077,7 @@ class GUI:
 
         if Mod == 0:
             self.CurrentMinParamDisplayed = 0
-        else:
+        elif not Mod is None:
             self.CurrentMinParamDisplayed = max(0, min(len(ItemsFields) - self.NFieldsDisplayed, self.CurrentMinParamDisplayed + Mod))
         self.DisplayedParams = []
         self.CurrentParams = {}
@@ -1136,6 +1170,120 @@ class GUI:
         if self.CurrentMinParamDisplayed + self.NFieldsDisplayed < len(ItemsFields):
             self.DisplayedParams += [[Tk.Label(self.ParamsValuesFrame, text = '...', width = 20, anchor = Tk.W)]]
             self.DisplayedParams[-1][0].grid(row=len(self.DisplayedParams)-1, column = 0)
+
+    def DisplayTypesParameters(self, Mod):
+        NItemsFields = 0
+        for TypeName in self.Framework.UserDefinedTypes.keys():
+            NItemsFields += 2 # One for the name, one for the '+' button
+            NItemsFields += len(self.Framework.UserDefinedTypes[TypeName]['fields'])
+
+        if Mod == 0:
+            self.CurrentMinParamDisplayed = 0
+        elif not Mod is None:
+            self.CurrentMinParamDisplayed = max(0, min(NItemsFields - self.NFieldsDisplayed, self.CurrentMinParamDisplayed + Mod))
+        self.DisplayedParams = []
+        self.CurrentParams = {}
+
+        if self.CurrentMinParamDisplayed != 0:
+            FirstLine = '...'
+        else:
+            FirstLine = ''
+        self.DisplayedParams += [[Tk.Label(self.ParamsValuesFrame, text = FirstLine, width = 20, anchor = Tk.W)]]
+        self.DisplayedParams[-1][0].grid(row=len(self.DisplayedParams)-1, column = 0)
+
+        DisplayedFieldsIndexes = list(range(self.CurrentMinParamDisplayed, min(NItemsFields, self.CurrentMinParamDisplayed + self.NFieldsDisplayed)))
+        nFieldPossible = 0
+        for TypeName in self.Framework.UserDefinedTypes.keys():
+            if nFieldPossible in DisplayedFieldsIndexes:
+                self.DisplayedParams += [[]]
+                self.DisplayedParams[-1] += [Tk.Label(self.ParamsValuesFrame, text = 'Event type', width = 20, anchor = Tk.W, foreground = 'black')]
+                self.DisplayedParams[-1][-1].grid(row=len(self.DisplayedParams)-1, column=0, sticky = Tk.N)
+                StrVar = Tk.StringVar(self.MainWindow)
+                StrVar.set(TypeName)
+                StrVar.trace("w", lambda name, index, mode, sv=StrVar, TypeName = TypeName, nField = None, DisplayNumber = len(self.DisplayedParams)-1, ModValue = 'name': self._OnDefinedEventTypeChange(sv, TypeName, nField, ModValue, DisplayNumber))
+                self.DisplayedParams[-1] += [Tk.Entry(self.ParamsValuesFrame, textvariable = StrVar, width = 60, bg = 'white')]
+                self.DisplayedParams[-1][-1].grid(row=len(self.DisplayedParams)-1, column=1, sticky = Tk.N)
+
+                self.DisplayedParams[-1] += [Tk.Button(self.ParamsValuesFrame, text = '-', command = lambda TypeName = TypeName: self._OnRemoveType(TypeName))]
+                self.DisplayedParams[-1][-1].grid(row=len(self.DisplayedParams)-1, column=2, sticky = Tk.N+Tk.E+Tk.W)
+            nFieldPossible += 1
+            for nFieldInType, Field in enumerate(self.Framework.UserDefinedTypes[TypeName]['fields']):
+                if nFieldPossible in DisplayedFieldsIndexes:
+                    self.DisplayedParams += [[]]
+                    StrVar = Tk.StringVar(self.MainWindow)
+                    StrVar.set(Field['type'])
+                    StrVar.trace("w", lambda name, index, mode, sv=StrVar, TypeName = TypeName, nField = nFieldInType, DisplayNumber = len(self.DisplayedParams)-1, ModValue = 'type': self._OnDefinedEventTypeChange(sv, TypeName, nField, ModValue, DisplayNumber))
+                    self.DisplayedParams[-1] += [Tk.Entry(self.ParamsValuesFrame, textvariable = StrVar, width = 20, bg = 'white')]
+                    self.DisplayedParams[-1][-1].grid(row=len(self.DisplayedParams)-1, column=0, sticky = Tk.N)
+
+                    StrVar = Tk.StringVar(self.MainWindow)
+                    StrVar.set(Field['name'])
+                    StrVar.trace("w", lambda name, index, mode, sv=StrVar, TypeName = TypeName, nField = nFieldInType, DisplayNumber = len(self.DisplayedParams)-1, ModValue = 'name': self._OnDefinedEventTypeChange(sv, TypeName, nField, ModValue, DisplayNumber))
+                    self.DisplayedParams[-1] += [Tk.Entry(self.ParamsValuesFrame, textvariable = StrVar, width = 60, bg = 'white')]
+                    self.DisplayedParams[-1][-1].grid(row=len(self.DisplayedParams)-1, column=1, sticky = Tk.N)
+
+                    self.DisplayedParams[-1] += [Tk.Button(self.ParamsValuesFrame, text = '-', command = lambda TypeName = TypeName, nField = nFieldInType: self._OnDefinedEventTypeAddRemove(TypeName, nField))]
+                    self.DisplayedParams[-1][-1].grid(row=len(self.DisplayedParams)-1, column=2, sticky = Tk.N+Tk.E+Tk.W)
+
+                nFieldPossible += 1
+            if nFieldPossible in DisplayedFieldsIndexes:
+                self.DisplayedParams += [[Tk.Button(self.ParamsValuesFrame, text = '+', command = lambda TypeName = TypeName, nField = None: self._OnDefinedEventTypeAddRemove(TypeName, nField))]]
+                self.DisplayedParams[-1][-1].grid(row=len(self.DisplayedParams)-1, column=0, columnspan = 3, sticky = Tk.N+Tk.E+Tk.W)
+            nFieldPossible += 1
+        if self.CurrentMinParamDisplayed + self.NFieldsDisplayed < NItemsFields:
+            self.DisplayedParams += [[Tk.Label(self.ParamsValuesFrame, text = '...', width = 20, anchor = Tk.W)]]
+            self.DisplayedParams[-1][0].grid(row=len(self.DisplayedParams)-1, column = 0)
+
+    def _OnDefinedEventTypeChange(self, StrVar, TypeName, nField, ModValue, DisplayIndex):
+        if ModValue == 'type':
+            ColumnIndex = 0
+        elif ModValue == 'name':
+            ColumnIndex = 1
+        CursorIndex = self.DisplayedParams[DisplayIndex][ColumnIndex].index(Tk.INSERT)
+        if nField is None:
+            PreviousName = TypeName
+            NewName = StrVar.get()
+            self.Framework.UserDefinedTypes[NewName] = self.Framework.UserDefinedTypes[PreviousName]
+            self.Framework.UserDefinedTypes[NewName]['name'] = NewName
+            del self.Framework.UserDefinedTypes[PreviousName]
+#TODO : change references to this event type
+            self.Framework.WriteTypesFile()
+
+            self.SetDisplayedCodefile(framework_abstractor.TYPES_DEF_FILE, SaveCurrentFile = False)
+            self.Update(Full = False)
+        else:
+            self.Framework.UserDefinedTypes[TypeName]['fields'][nField][ModValue] = StrVar.get()
+            self.Framework.WriteTypesFile()
+            self.SetDisplayedCodefile(framework_abstractor.TYPES_DEF_FILE, SaveCurrentFile = False)
+
+        if ModValue == 'type':
+            ColumnIndex = 0
+        elif ModValue == 'name':
+            ColumnIndex = 1
+        self.DisplayedParams[DisplayIndex][ColumnIndex].focus_set()
+        self.DisplayedParams[DisplayIndex][ColumnIndex].icursor(CursorIndex)
+
+    def _OnRemoveType(self, TypeName):
+        self.Framework.RemoveType(TypeName)
+        self.Framework.WriteTypesFile()
+
+        if not self.Framework.UserDefinedTypes:
+            self.CurrentCodeFile = self.DefaultFile
+            self.ActiveItem = None
+        
+        self.SetDisplayedCodefile(self.CurrentCodeFile, SaveCurrentFile = False)
+        self.Update(Full = False)
+
+    def _OnDefinedEventTypeAddRemove(self, TypeName, nField):
+        if nField is None:
+            self.Framework.UserDefinedTypes[TypeName]['fields'] += [{'type':'', 'name': ''}]
+            self.ChangeDisplayedParams(None)
+        else:
+            self.Framework.UserDefinedTypes[TypeName]['fields'].pop(nField)
+            self.Framework.WriteTypesFile()
+
+            self.SetDisplayedCodefile(framework_abstractor.TYPES_DEF_FILE, SaveCurrentFile = False)
+            self.Update(Full = False)
 
     def GetAddedParamDisplayColor(self, ParamName, ParamValue):
         if not self._AddedParamValidity(ParamName, ParamValue):
