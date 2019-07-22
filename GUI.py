@@ -45,7 +45,7 @@ class GUI:
         self.FrameworkFileName = ''
 
         TarsierModules = tarsier_scrapper.ScrapTarsierFolder()
-        SepiaModules, SepiaTypes = sepia_scrapper.ScrapSepiaFile()
+        SepiaModules, SepiaTypes, SepiaUtilities = sepia_scrapper.ScrapSepiaFile()
         ChameleonModules = chameleon_scrapper.ScrapChameleonFolder()
 
         self.AvailableModules = {}
@@ -59,8 +59,11 @@ class GUI:
         self.BaseTypes = {self.Framework.NoneType['name']: self.Framework.NoneType}
         for TypeName, Type in list(SepiaTypes.items()):
             self.BaseTypes[TypeName] = Type
-
         self.AvailableTypes = dict(self.BaseTypes)
+
+        self.AvailableUtilities = {}
+        for UtilityName, Utility in SepiaUtilities.items():
+            self.AvailableUtilities[UtilityName] = Utility
 
         self.UserDefinedVariableTypes = ['Event type']
         self.MenuParams = {'event_stream_type': (self.AvailableTypes, self._OnEventTypeTemplateChange, self._OnNewEventTypeTemplate), 'Event': (self.AvailableTypes, self._OnEventTypeTemplateChange, self._OnNewEventTypeTemplate)}
@@ -1019,6 +1022,8 @@ class GUI:
         self.ActiveItem = framework_abstractor.TYPES_DEF_FILE
         self.Update()
 
+    def _OnAddGlobalVariable(self):
+
     def _AddedParamValidity(self, AddedParamName, AddedParamValue):
         if AddedParamName == 'Name':
             if AddedParamValue == '':
@@ -1029,18 +1034,21 @@ class GUI:
     def _GetModuleAddedParams(self):
         return [{'name': 'Name', 'type': 'str', 'default': self.ActiveItem['name']}]
 
-    def _GetBlankAddedParams(self):
-        return [{'name': 'Name', 'type': 'str', 'default': self.Framework.Data['name']}]
-
     def _GetLinkAddedParams(self):
         return []
+
+    def _GetFrameworkVariables(self):
+        VariablesParams = [{'name': 'Name', 'type': 'str', 'default': self.Framework.Data['name']}]
+        for GlobalVariable in self.Framework.GlobalVariables:
+            VariablesParams += [{'name': GlobalVariable['name'], 'type': GlobalVariable['type'], 'default': GlobalVariable['value']}]
+        return VariablesParams
 
     def ChangeDisplayedParams(self, Mod):
         for Line in self.DisplayedParams:
             for Field in Line:
                 Field.destroy()
         if self.ActiveItem is None:
-            AddedParams = self._GetBlankAddedParams()
+            AddedParams = self._GetFrameworkVariables()
             ModuleParameters = []
             ModuleTemplates = []
             

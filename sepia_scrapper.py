@@ -13,7 +13,7 @@ TEMPLATE_PARAM_TYPE = 'typename'
 
 SEPIA_TYPES_INDICATOR = "enum class type"
 SEPIA_TYPES_DEFINITION_LINE = "struct event<type::{0}>"
-TEMPLATE_SCRAPED_FUNCTIONS = ['make_split', 'join_observable', 'make_observable']
+TEMPLATE_SCRAPED_FUNCTIONS = ['make_split', 'join_observable', 'make_observable', 'read_header']
 
 EVENT_TO_INDICATOR = 'EventTo'
 
@@ -181,9 +181,19 @@ def ExtractTemplates(Lines, FuncStartLine):
             return Templates
     return Templates
 
+def AddUtilities():
+    Utilities = {}
+    Utilities['read_header'] = {}
+    Utilities['read_header']['name'] = 'read_header'
+    Utilities['read_header']['origin'] = 'sepia'
+    Utilities['read_header']['parameters'] = [{'name': 'event_stream', 'type': 'std::istream&', 'param_number':0, 'default':''}]
+    Utilities['read_header']['outputs'] = [{'type' : 'header', 'name': 'header'}]
+    return Utilities
+
 def ScrapSepiaFile():
     Lines = GetSepiaCode()
     Modules = {}
+    Utilities = {}
     for funcName in TEMPLATE_SCRAPED_FUNCTIONS:
         StartLine = FindTemplateFunctions(Lines, funcName)
         Modules[funcName] = {}
@@ -204,9 +214,12 @@ def ScrapSepiaFile():
         Modules[funcName]['has_operator'] = (funcName == 'make_split') # Hardcoded here, cause impossible anyway to get which template is created
         Modules[funcName]['ev_outputs'] = {}
         Modules[funcName]['has_event_to'] = False
+
+    Utilities = AddUtilities()
+
     Types = GetSepiaTypes(Lines)
 
-    return Modules, Types
+    return Modules, Types, Utilities
 
 if __name__ == '__main__':
     args = sys.argv
@@ -217,4 +230,4 @@ if __name__ == '__main__':
         if Lines:
             Find_Make_Function(Filename, Lines)
     else:
-        SepiaModules, SepiaTypes = ScrapSepiaFile()
+        SepiaModules, SepiaTypes, SepiaUtilities = ScrapSepiaFile()

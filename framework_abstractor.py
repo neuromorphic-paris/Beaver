@@ -20,7 +20,7 @@ def W(Value):
 
 class FrameworkAbstraction:
     def __init__(self, Data = None, LogFunction = None):
-        self.Data = {'modules': [], 'name': '', 'events_types': [], 'files': {'Documentation':{'data': '~ Generated with Beaver ~', 'type': 'documentation'}}, 'user_defined_types': {}, 'links_types': {}, 'chameleon_tiles': {}}
+        self.Data = {'modules': [], 'name': '', 'events_types': [], 'files': {'Documentation':{'data': '~ Generated with Beaver ~', 'type': 'documentation'}}, 'user_defined_types': {}, 'links_types': {}, 'chameleon_tiles': {}, 'utilities': [], 'global_variables': []}
         self.NoneType = {'name': '?', 'fields':[], 'origin':'', 'value': None}
         self.ModulesIDs = []
         self.HasChameleon = False
@@ -34,6 +34,8 @@ class FrameworkAbstraction:
         self.LinksTypes = self.Data['links_types']
         self.ChameleonTiles = self.Data['chameleon_tiles']
         self.UserDefinedTypes = self.Data['user_defined_types']
+        self.Utilities = self.Data['utilities']
+        self.GlobalVariables = self.Data['global_variables']
         
         if LogFunction is None:
             self.LogFunction = sys.stdout.write
@@ -794,12 +796,24 @@ class CodeWriterClass:
             for Module in Framework.Modules:
                 for LambdaFunctionName, LambdaFunction in Module['lambda_functions'].items():
                     self._AddLambdaFunction(LambdaFunctionName, LambdaFunction['data'])
+                    self._JumpLines(1)
 
             while len(self.WrittenModulesIDs) != len(Framework.Modules):
                 for Module in Framework.Modules:
                     if Module['id'] in self.WrittenModulesIDs:
                         continue
-                    self._WriteModule(Module)
+                    AllChildrenWritten = True
+                    for HandlerIndex in FindModuleHandlers(Module['module']):
+                        HandlerName = Module['module']['parameters'][HandlerIndex]['name']
+                        HandlerParamFuncName = LAMBDA_FUNCTION_FROM.format(Module['name'], HandlerName)
+                        if (not (Module['parameters'][HandlerIndex] == '@'+HandlerParamFuncName)):
+                            ChildrenName = Module['parameters'][HandlerIndex].split('@')[-1]
+                            ChildrenID = Framework.GetModuleByName(ChildrenName)['id']
+                            if ChildrenID not in self.WrittenModulesIDs:
+                                AllChildrenWritten = False
+                                break
+                    if AllChildrenWritten:
+                        self._WriteModule(Module)
 
             self._CloseMain()
     def _AddIncludeModule(self, ModuleOrigin, ModuleFile):
@@ -852,7 +866,9 @@ class CodeWriterClass:
                 ParametersLines += 'std::move({0})'.format(Parameter.split('@')[-1])
             ParametersLines += ',\n'
         ParametersLines = ParametersLines[:-2]
+        ParametersLines += ');'
         self._Write(ParametersLines)
+        self.NTabs -= 1
 
 
     def _AddLambdaFunction(self, Name, Data):
