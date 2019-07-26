@@ -13,7 +13,7 @@ TEMPLATE_PARAM_TYPE = 'typename'
 
 SEPIA_TYPES_INDICATOR = "enum class type"
 SEPIA_TYPES_DEFINITION_LINE = "struct event<type::{0}>"
-TEMPLATE_SCRAPED_FUNCTIONS = ['make_split', 'join_observable', 'make_observable', 'read_header']
+TEMPLATE_SCRAPED_FUNCTIONS = ['make_split', 'join_observable', 'make_observable']
 
 EVENT_TO_INDICATOR = 'EventTo'
 
