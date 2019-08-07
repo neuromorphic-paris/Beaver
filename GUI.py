@@ -15,6 +15,7 @@ from tkinter import font as tkFont
 
 import os
 import json
+import inspect
 from functools import partial
 matplotlib.use("TkAgg")
 
@@ -43,6 +44,8 @@ class GUI:
         self.Framework = framework_abstractor.FrameworkAbstraction(LogFunction = self.Log)
         self.FrameworkFileName = ''
 
+        self.Options = {'display_module_ev_outputs':True}
+
         TarsierModules = tarsier_scrapper.ScrapTarsierFolder()
         SepiaModules, SepiaTypes, SepiaUtilities = sepia_scrapper.ScrapSepiaFile()
         ChameleonModules = chameleon_scrapper.ScrapChameleonFolder()
@@ -68,6 +71,7 @@ class GUI:
         self.MenuParams = {'event_stream_type': (self.AvailableTypes, self._OnEventTypeTemplateChange, self._OnNewEventTypeTemplate), 'Event': (self.AvailableTypes, self._OnEventTypeTemplateChange, self._OnNewEventTypeTemplate)}
 
         self.MainWindow = Tk.Tk()
+        self.MainWindow.bind("<F4>", lambda event:self.MainWindow.destroy())
         self.MainWindow.title('Beaver - {0}'.format(framework_abstractor.DEFAULT_NAME))
 
         MainMenu = Tk.Menu(self.MainWindow)
@@ -86,7 +90,7 @@ class GUI:
         newmenu = Tk.Menu(insertmenu)
         insertmenu.add_cascade(label = "New", menu = newmenu)
         for Type in self.UserDefinedVariableTypes:
-            newmenu.add_command(label=Type, command=partial(self.GenerateNewType, Type))
+            newmenu.add_command(label=Type, command=partial(self.AddType, Type))
         insertmenu.add_separator()
 
         def FirstUp(string):
@@ -121,7 +125,7 @@ class GUI:
         self.Display.tight_layout()
         
         self.DisplayCanvas = FigureCanvasTkAgg(self.Display, self.MainWindow)
-        cid = self.DisplayCanvas.mpl_connect('button_press_event', self._OnDisplayClick)
+        cid = self.DisplayCanvas.mpl_connect('button_press_event', self._onDisplayClick)
         self.DisplayCanvas.show()
         self.DisplayCanvas.get_tk_widget().grid(row = 0, column = 0)
 
@@ -161,10 +165,10 @@ class GUI:
         self.DefaultFile = framework_abstractor.GENERAL_FILENAME
         self.CodeFrame = Tk.Frame(self.MainWindow)
         self.CodeFrame.grid(row = 0, column = 2)
-        self.CurrentCodeFile = list(self.Framework.Files.keys())[0]
+        self.CurrentCodeFile = list(self.Framework.Files(Bare = True).keys())[0]
         self.CodeFileVar = Tk.StringVar(self.MainWindow)
         self.CodeFileVar.set(self.CurrentCodeFile)
-        self.CodeFileMenu = Tk.OptionMenu(self.CodeFrame, self.CodeFileVar, *self.Framework.Files)
+        self.CodeFileMenu = Tk.OptionMenu(self.CodeFrame, self.CodeFileVar, *self.Framework.Data['files'])
         self.CodeFileMenu.grid(row = 0, column = 0)
         self.CodePad = ScrolledText.ScrolledText(self.CodeFrame, width=120, height=40, bg = 'white')
         self.CodePad.bind("<<TextModified>>", self._onCodeModification)
@@ -174,7 +178,6 @@ class GUI:
         self.CodePad.bind("<Tab>", _tab)
         self.CodePad.grid(row = 1, column = 0)
         self.SortedFiles = []
-        self.UpdateDisplayedCodefile(self.CurrentCodeFile, SaveCurrentFile = False)
         
         self.ParamsFrame = Tk.Frame(self.MainWindow, width = 100, bd = 4, relief='groove')
         self.ParamsFrame.grid(row = 2, column = 0, rowspan = 1, columnspan = 1, sticky=Tk.N+Tk.S+Tk.E+Tk.W)
@@ -185,8 +188,8 @@ class GUI:
         self.ParamsValuesFrame.grid(row = 1, column = 0, sticky = Tk.N+Tk.S+Tk.E+Tk.W)
         self.ParamsButtonsFrame = Tk.Frame(self.ParamsFrame)
         self.ParamsButtonsFrame.grid(row = 1, column = 1, sticky = Tk.N+Tk.S+Tk.E)
-        self.ParamsUpperButton = Tk.Button(self.ParamsButtonsFrame, text = '^', height = 10, command = partial(self.ChangeDisplayedParams, -1))
-        self.ParamsLowerButton = Tk.Button(self.ParamsButtonsFrame, text = 'v', height = 10, command = partial(self.ChangeDisplayedParams, +1))
+        self.ParamsUpperButton = Tk.Button(self.ParamsButtonsFrame, text = '^', height = 10, command = partial(self.UpdateDisplayedParams, -1))
+        self.ParamsLowerButton = Tk.Button(self.ParamsButtonsFrame, text = 'v', height = 10, command = partial(self.UpdateDisplayedParams, +1))
         self.ParamsUpperButton.grid(row = 0, column = 0)
         self.ParamsLowerButton.grid(row = 1, column = 0)
         self.DisplayedParams = []
@@ -207,8 +210,7 @@ class GUI:
         self.ConsolePad.grid(row = 2, column = 2, sticky=Tk.N+Tk.S)
         self.MAX_LOG_LINES = 50
         
-        self.Update(True, 0)
-        self.ChangeDisplayedParams(0)
+        self.GUIUpdate('__init__')
 
         self.Log("Ready !")
         self.MainWindow.mainloop()
@@ -223,30 +225,23 @@ class GUI:
         for TypeName in self.Framework.UserDefinedTypes.keys():
             self.AvailableTypes[TypeName] = self.Framework.UserDefinedTypes[TypeName]
 
-    def _OnDisplayClick(self, event):
+    def _onDisplayClick(self, event):
         if not self.Framework.Modules:
             return None
         Click = np.array([event.xdata, event.ydata])
         for Module in self.Framework.Modules:
             if (abs(self.DisplayedModulesPositions[Module['id']] - Click) < self.ModulesDiameter/2.).all():
-                self.ActiveItem = Module
-                self.DrawFramework()
-                self.ChangeDisplayedParams(0)
+                if type(Module) == framework_abstractor.LambdaModuleClass and Module['default']:
+                    self.SelectedAvailableModulePosition = -Module['id'] - 1
                 if not self.WaitingForRoute is None:
-                    self.RouteModule()
-
-                HandlersFileName = Module['name'] + framework_abstractor.HANDLERS_FILE_NAME_SUFFIX
-                if HandlersFileName in self.Framework.Files.keys(): # Useful typically for chameleon module that doesn't require any code file
-                    self.UpdateDisplayedCodefile(HandlersFileName, SaveCurrentFile = False)
-
+                     self.RouteModule(Module)
+                self.GUIUpdate('_onDisplayClick', ActiveItemValue = Module)
                 return None
         self.WaitingForRoute = None
-        for LinkTuple, LinkText in list(self.DisplayedLinks.items()):
+        for LinkStr, LinkText in list(self.DisplayedLinks.items()):
             Contains, AddDict = LinkText.contains(event)
             if Contains:
-                self.ActiveItem = LinkTuple
-                self.DrawFramework()
-                self.ChangeDisplayedParams(0)
+                self.GUIUpdate('_onDisplayClick', ActiveItemValue = LinkStr)
                 return None
 
         for nPosition, PositionAndParent in enumerate(self.AvailablesModulesPositions):
@@ -255,12 +250,9 @@ class GUI:
                     self.SelectedAvailableChameleonModulePosition = nPosition
                 else:
                     self.SelectedAvailableModulePosition = nPosition
-                self.DrawFramework()
-                #self.ChangeDisplayedParams(0)
+                self.GUIUpdate('_onDisplayClick', SetActiveItem = False)
                 return None
-        self.ActiveItem = None
-        self.DrawFramework()
-        self.ChangeDisplayedParams(0)
+        self.GUIUpdate('_onDisplayClick', ActiveItemValue = None)
 
     def GenerateEmptyFramework(self):
         if self.Framework.Modules:
@@ -272,20 +264,14 @@ class GUI:
             self.Framework = framework_abstractor.FrameworkAbstraction(LogFunction = self.Log)
             self.Framework.Data['name'] = file.name.split('/')[-1].split('.json')[0]
 
-            self.UpdateDisplayedCodefile(self.CurrentCodeFile, SaveCurrentFile = False)
             self.FrameworkFileName = file.name
             self.MainWindow.title('Beaver - {0}'.format(self.Framework.Data['name']))
 
             self.TempFiles = {}
             self.DisplayedParams = []
-            self.CurrentMinParamDisplayed = 0
             self.DisplayedModulesPositions = {}
 
-            self.Update()
-            self.UpdateDisplayedCodefile(self.DefaultFile)
-            self.ActiveItem = None
-        self.DrawFramework()
-        self.ChangeDisplayedParams(0)
+        self.GUIUpdate('GenerateEmptyFramework')
 
     def save_command(self):
         self.RegisterCurrentCodePad()
@@ -311,7 +297,6 @@ class GUI:
                 json.dump(self.Framework.ToDict(), f)
                 self.FrameworkFileName = f.name
                 self.Log("Saved.")
-        self.ChangeDisplayedParams(0)
         
     def open_command(self):
         with FileDialog.askopenfile(parent=self.MainWindow,mode='r', initialdir = PROJECTS_DIR, title='Open...', defaultextension='.json', filetypes=[("JSON","*.json")]) as file:
@@ -323,29 +308,20 @@ class GUI:
 
                 self.TempFiles = {}
                 self.DisplayedParams = []
-                self.CurrentMinParamDisplayed = 0
                 self.DisplayedModulesPositions = {}
                 
+        self.GUIUpdate('open_command')
 
-                self.ActiveItem = None
-                self.UpdateDisplayedCodefile(self.DefaultFile)
-                self.ChangeDisplayedParams(0)
-                try:
-                    self.UpdateDisplayedCodefile(self.DefaultFile, SaveCurrentFile = False)
-                except:
-                    self.UpdateDisplayedCodefile(list(self.Framework.Files.keys())[0], SaveCurrentFile = False)
-        self.Update()
-        self.ChangeDisplayedParams(0)
-
-    def RegisterCurrentCodePad(self):
+    def RegisterCurrentCodePad(self, OriginFunction):
         if self.CurrentCodeFile in list(self.TempFiles.keys()):
             return None
         CurrentText = self.CodePad.get('1.0', Tk.END+'-1c')
-        self.Framework.Files[self.CurrentCodeFile]['data'] = CurrentText
+        self.Framework.Files()[self.CurrentCodeFile]['data'] = CurrentText
 
     def AddModule(self, ModuleName):
         if self.AvailableModules[ModuleName]['origin'] == 'chameleon':
             self.AddChameleonModule(ModuleName)
+            self.GUIUpdate('AddModule', ActiveItemValue = self.Framework.Modules[-1])
             return None
 
         ModuleNames = [Module['name'] for Module in self.Framework.Modules]
@@ -359,17 +335,16 @@ class GUI:
         self.Framework.AddModule(self.AvailableModules[ModuleName], AskedModuleName)
         NewModule = self.Framework.ReferenceModulesDictionnary['name'][AskedModuleName]
 
-        ParentID = self.AvailablesModulesPositions[self.SelectedAvailableModulePosition][1]
-        ChildrenID = self.AvailablesModulesPositions[self.SelectedAvailableModulePosition][2]
-        if not ParentID is None:
+        if self.SelectedAvailableModulePosition < 0: # We replace here lambda function
+            DefaultLambdaFunctionID = -self.SelectedAvailableModulePosition - 1
+            ParentID = self.Framework.ReferenceModulesDictionnary['id'][DefaultLambdaFunctionID]['parent_ids'][0]
             self.AddLink(ParentID, NewModule['id'])
-        if not ChildrenID is None:
-            self.AddLink(NewModule['id'], ChildrenID) # Even if ChildrenID is None, we add the link. In this case, it will be a link to a default lambda function
+        else:
+            ChildrenID = self.AvailablesModulesPositions[self.SelectedAvailableModulePosition][2]
+            if not ChildrenID is None:
+                self.AddLink(NewModule['id'], ChildrenID) # Even if ChildrenID is None, we add the link. In this case, it will be a link to a default lambda function
 
-        HandlersFileName = NewModule['name'] + framework_abstractor.HANDLERS_FILE_NAME_SUFFIX
-
-        self.ActiveItem = NewModule
-        self.Update(True, 0)
+        self.GUIUpdate('AddModule', ActiveItemValue = NewModule)
 
     def AddChameleonModule(self, ModuleName, AddBGC = True): # As Chameleon modules are quite uniques, we add them apart
         ModuleNames = [Module['name'] for Module in self.Framework.Modules]
@@ -394,17 +369,14 @@ class GUI:
         NewModule = self.Framework.ReferenceModulesDictionnary['name'][AskedModuleName]
         self.Framework.ChameleonTiles[Tile] += [NewModule['id']]
 
-        self.AddChameleonModuleDisplay(NewModule, AutoDraw = True)
+        self.AddChameleonModuleDisplay(NewModule)
 
     def AddUtility(self, UtilityName):
         None
 
-    def AddChameleonModuleDisplay(self, Module, AutoDraw):
+    def AddChameleonModuleDisplay(self, Module):
         print("Adding chameleon module display for ", Module)
         self.DisplayedModulesPositions[Module['id']] = self.AvailablesModulesPositions[self.SelectedAvailableChameleonModulePosition][0]
-        self.ActiveItem = self.Framework.Modules[-1]
-        if AutoDraw:
-            self.Update(True, 0)
 
     def GetChameleonModulePosition(self, Tile, nModule):
         if not list(self.Framework.ChameleonTiles.values()):
@@ -422,47 +394,41 @@ class GUI:
             self.Log("Removing {0}".format(Item['name']))
             self.Framework.RemoveModule(Item)
 
-            self.ActiveItem = None
-            self.Update(True, 0)
-
         elif type(Item) == tuple:
-            print("Removing link")
-            LinkTuple = Item
-            ParentID, ChildID = self.Framework.GetParentAndChildFromLinkTuple(LinkTuple)
+            LinkStr = Item
+            ParentID, ChildID = self.Framework.GetParentAndChildFromLinkStr(LinkStr)
+            self.Log("Removed link from {0} to {1}".format(self.Framework.ReferenceModulesDictionnary['id'][ParentID]['name'], self.Framework.ReferenceModulesDictionnary['id'][ChildID]['name']))
             self.Framework.RemoveLink(ParentID, ChildID)
 
-            self.ActiveItem = None
-            self.Update(True, 0)
-            self.Log("Removed link from {0} to {1}".format(self.Framework.ReferenceModulesDictionnary['id'][ParentID]['name'], self.Framework.ReferenceModulesDictionnary['id'][ChildID]['name']))
+        self.GUIUpdate('RemoveModule')
 
-    def RouteModule(self):
-        if type(self.ActiveItem) != framework_abstractor.ModuleClass:
+    def RouteModule(self, SecondRoutedModule):
+        if type(SecondRoutedModule) != framework_abstractor.ModuleClass:
             return None
         
         if self.WaitingForRoute is None:
-            if self.ActiveItem['origin'] == 'chameleon':
+            if SecondRoutedModule['origin'] == 'chameleon':
                 self.Error('Chameleon modules cannot output events.')
                 return None
-            HandlersParamsIndexes = self.ActiveItem.FindModuleHandlers()
+            HandlersParamsIndexes = SecondRoutedModule.FindModuleHandlers()
             FreeSlot = False
             for HandlerIndex in HandlersParamsIndexes:
-                if self.ActiveItem['parameters'][HandlerIndex] == '@' + framework_abstractor.LAMBDA_FUNCTION_FROM.format(self.ActiveItem['name'], self.ActiveItem['module']['parameters'][HandlerIndex]['name']):
+                if SecondRoutedModule['parameters'][HandlerIndex] == '@' + framework_abstractor.LAMBDA_FUNCTION_FROM.format(SecondRoutedModule['name'], SecondRoutedModule['module']['parameters'][HandlerIndex]['name']):
                     FreeSlot = True
                     break
             if not FreeSlot: # This work since, even for a chameleon module, needs a free slot that is actually a lambda function by default
                 self.Error("Selected module cannot have any more outputs")
                 return None
-            self.WaitingForRoute = self.ActiveItem['id'] # Will be the parent
+            self.WaitingForRoute = SecondRoutedModule['id'] # Will be the parent
             self.Log('Selected a child module to link to...')
-            self.Update()
             return None
 
-        if not self.ActiveItem.HasOperator():
+        if not SecondRoutedModule.HasOperator():
             self.WaitingForRoute = None
             self.Error('Selected module cannot receive any input')
             return None
     
-        if self.ActiveItem['id'] == self.WaitingForRoute:
+        if SecondRoutedModule['id'] == self.WaitingForRoute:
             self.WaitingForRoute = None
             self.Error('Cannot link a module to itself')
             return None
@@ -474,19 +440,17 @@ class GUI:
                 for OlderParentID in self.Framework.ReferenceModulesDictionnary['id'][ParentID]['parent_ids']:
                     if OlderParentID not in OlderGen:
                         OlderGen += [OlderParentID]
-                        if OlderParentID == self.ActiveItem['id']:
+                        if OlderParentID == SecondRoutedModule['id']:
                             self.Error('Cannot link create circular dependancies')
                             self.WaitingForRoute = None
                             return None
                 NewParentsIDs = list(OlderGen)
 
-        self.Log("Linking {0} to {1}".format(self.Framework.ReferenceModulesDictionnary['id'][self.WaitingForRoute]['name'], self.ActiveItem['name']))
-        self.AddLink(self.WaitingForRoute, self.ActiveItem['id'])
+        self.Log("Linking {0} to {1}".format(self.Framework.ReferenceModulesDictionnary['id'][self.WaitingForRoute]['name'], SecondRoutedModule['name']))
+        self.AddLink(self.WaitingForRoute, SecondRoutedModule['id'])
 
         self.WaitingForRoute = None
-
-        self.Update(True, None)
-        self.WaitingForRoute = None
+        self.GUIUpdate('RouteModule')
 
     def GetDescendance(self, ElderID):
         AllDescendance = [ElderID]
@@ -504,11 +468,17 @@ class GUI:
     def AddLink(self, ParentID, ChildrenID):
         self.Framework.AddLink(ParentID, ChildrenID)
 
-    def GenerateNewType(self, Type):
+    def AddType(self, Type):
         if Type == 'Event type':
             self.Framework.AddNewType()
             self.ActiveItem = framework_abstractor.TYPES_DEF_FILE
             self.Update(Mod = 0)
+
+    def _OnRemoveType(self, TypeName):
+        self.Framework.RemoveType(TypeName)
+        self.Framework.WriteTypesFile()
+
+        self.GUIUpdate('_OnRemoveType')
 
     def GenerateCode(self):
         if not self.Framework.Data['name'] or not self.FrameworkFileName:
@@ -521,14 +491,11 @@ class GUI:
             if not self.FrameworkFileName:
                 return None
         LuaFilename = self.Framework.GenerateBuild()
-        self.UpdateDisplayedCodefile(LuaFilename)
 
     def GenerateBinary(self):
         None
 
     def DisplayModuleCode(self):
-        print(self.AvailablesModulesPositions)
-        print(self.Framework.LinksTypes)
         for Key, Value in self.ActiveItem.items():
             print(Key, Value)
         if not self.ActiveItem is None and type(self.ActiveItem) == framework_abstractor.ModuleClass:
@@ -555,48 +522,23 @@ class GUI:
                 self.TempFiles[Module['module']['name'] + '.hpp'] = '\n'.join(Lines)
             else:
                 return None
-            self.UpdateDisplayedCodefile(Module['module']['name'] + '.hpp')
+            self.GUIUpdate('DisplayModuleCode', TmpFile = Module['module']['name'] + '.hpp')
 
-    def UpdateCodeMenu(self):
-        NewSortedFilesList = []
-        for File in self.SortedFiles:
-            if File in self.Framework.Files.keys():
-                NewSortedFilesList += [File]
-        self.SortedFiles = NewSortedFilesList
-        for File in self.Framework.Files.keys():
-            if File not in self.SortedFiles:
-                self.SortedFiles += [File]
+    def UpdateCodeMenu(self, OriginFunction):
         Menu = self.CodeFileMenu['menu']
         Menu.delete(0, "end") 
-        for nFile, FileName in enumerate(self.SortedFiles):
-            Menu.add_command(label = FileName, command = partial(self.UpdateDisplayedCodefile, FileName))
+        for FileName in self.Framework.Files().keys():
+            Menu.add_command(label = FileName, command = partial(self._OnCodefileSelection, FileName))
 
-    def UpdateDisplayedCodefile(self, Codefile = None, SaveCurrentFile = True):
-        self.UpdateCodeMenu()
-        if SaveCurrentFile:
-            self.RegisterCurrentCodePad()
+    def _OnCodefileSelection(self, Filename):
+        self.GUIUpdate('_OnCodefileSelection', ActiveItemValue = Filename)
+
+    def UpdateDisplayedFile(self, OriginFunction, TmpFile = None):
         self.CodePad.delete('1.0', Tk.END)
-        if not Codefile is None and Codefile != self.CurrentCodeFile:
-            if Codefile == framework_abstractor.TYPES_DEF_FILE:
-                self.ActiveItem = Codefile
-                self.CurrentCodeFile = Codefile
-                self.CodeFileVar.set(self.CurrentCodeFile)
-                self.Update()
-                return None
-            else:
-                if self.CurrentCodeFile == framework_abstractor.TYPES_DEF_FILE:
-                    self.ActiveItem = None
-                    self.CurrentCodeFile = Codefile
-                    self.CodeFileVar.set(self.CurrentCodeFile)
-                    self.Update()
-                    return None
-        if self.CurrentCodeFile in list(self.Framework.Files.keys()):
-            self.CodePad.insert(Tk.END, self.Framework.Files[self.CurrentCodeFile]['data'])
-        elif self.CurrentCodeFile in list(self.TempFiles.keys()):
-            self.CodePad.insert(Tk.END, self.TempFiles[self.CurrentCodeFile])
+        if not TmpFile is None:
+            self.CodePad.insert(Tk.END, self.TempFiles[TmpFile])
         else:
-            self.CurrentCodeFile = self.DefaultFile
-            self.CodePad.insert(Tk.END, self.Framework.Files[self.CurrentCodeFile]['data'])
+            self.CodePad.insert(Tk.END, self.Framework.Files()[self.CurrentCodeFile]['data'])
 
     def _onCodeModification(self):
         None
@@ -667,7 +609,7 @@ class GUI:
                     self.CitedModules += [ChildrenModule['id']]
         print("Arbo : ", self.Arboresence)
 
-    def RegenerateDisplayPositions(self):
+    def UpdateDisplayPositions(self, OriginFunction):
         self.ExtractArboresence()
         
         self.DisplayedModulesPositions = {}
@@ -747,62 +689,127 @@ class GUI:
                         continue
                     self.DisplayedModulesPositions[Item] = np.array([X, AskedHeights[Item]])
                 else:
+                    Add = True
                     for AddedAvlbPos in self.AvailablesModulesPositions:
                         if Item[1:] == AddedAvlbPos[1:]:
-                            continue
-                    Item[0][0] = X
-                    self.AvailablesModulesPositions += [Item]
+                            Add = False
+                            break
+                    if Add:
+                        Item[0][0] = X
+                        self.AvailablesModulesPositions += [Item]
 
                     self.ChameleonInitialTilePosition[0] = min(self.ChameleonInitialTilePosition[0], X)
 
         for Module in self.Framework.Modules:
-            if type(Module) == framework_abstractor.LambdaFunctionClass and Module['default']:
-                self.SelectedAvailableModulePosition = -Module['id']
+            if type(Module) == framework_abstractor.LambdaModuleClass and Module['default']:
+                self.SelectedAvailableModulePosition = -Module['id']-1
                 break
         else:
             self.SelectedAvailableModulePosition = len(self.AvailablesModulesPositions)-1
         self.RegenerateChameleonAvailableSlots()
 
-        print(self.AvailablesModulesPositions)
-        print(self.DisplayedModulesPositions)
+#    def UpdateOld(self, Regenerate = False, Mod = None):
+#        if type(self.ActiveItem) == framework_abstractor.ModuleClass:
+#            self.UpdateDisplayedCodefile(self.ActiveItem.FileName(), SaveCurrentFile = False)
+#        elif type(self.ActiveItem) == framework_abstractor.LambdaModuleClass:
+#            pass
+#        elif self.ActiveItem == framework_abstractor.TYPES_DEF_FILE:
+#            self.UpdateDisplayedCodefile(framework_abstractor.TYPES_DEF_FILE, SaveCurrentFile = False)
+#        elif self.ActiveItem is None:
+#            self.UpdateDisplayedCodefile(self.DefaultFile, SaveCurrentFile = False)
+#        if Regenerate:
+#            self.UpdateDisplayPositions()
+#        self.UpdateDrawing()
+#        self.ChangeDisplayedParams(Mod)
 
-    def Update(self, Regenerate = False, Mod = None):
-        if type(self.ActiveItem) == framework_abstractor.ModuleClass:
-            self.UpdateDisplayedCodefile(self.ActiveItem['name'] + framework_abstractor.HANDLERS_FILE_NAME_SUFFIX, SaveCurrentFile = False)
-        elif type(self.ActiveItem) == framework_abstractor.LambdaFunctionClass:
-            pass
-            #self.UpdateDisplayedCodefile(self.ActiveItem['name'] + framework_abstractor.HANDLERS_FILE_NAME_SUFFIX, SaveCurrentFile = False)
-        elif self.ActiveItem == framework_abstractor.TYPES_DEF_FILE:
-            self.UpdateDisplayedCodefile(framework_abstractor.TYPES_DEF_FILE, SaveCurrentFile = False)
-        elif self.ActiveItem is None:
-            self.UpdateDisplayedCodefile(self.DefaultFile, SaveCurrentFile = False)
-        if Regenerate:
-            self.RegenerateDisplayPositions()
-        self.DrawFramework()
-        self.ChangeDisplayedParams(Mod)
+    def GUIUpdate(self, OriginFunction, **kwargs):
+        UpdateOriginFunctions = ['__init__', '_onDisplayClick', '_OnCodefileSelection', 'GenerateEmptyFramework', 'open_command', 'AddModule', 'AddUtility', 'RemoveModule', 'RouteModule', '_OnRemoveType', 'GenerateCode', 'GenerateBuild', 'GenerateBinary', 'DisplayModuleCode', '_OnAddedParameterChange', '_OnFrameworkNameChange', '_OnEventTypeTemplateChange', '_OnNewEventTypeTemplate', '_OnAddGlobalVariable', '_OnRemoveGlobalVariable', '_OnGlobalVariableChange', '_OnDefinedEventTypeFieldChange', '_OnDefinedEventTypeFieldAddRemove']
+        if not callable(getattr(self, OriginFunction)):
+            print("Ill defined call to GUI Update. Function not specified")
+            return None
+        if OriginFunction not in UpdateOriginFunctions:
+            print("Not implemented GUI update from function {0}".format(OriginFunction))
+            return None
 
-    def DrawFramework(self):
+        FunctionsOrder = [self.RegisterCurrentCodePad, self.UpdateFocus, self.UpdateDisplayPositions, self.UpdateDrawing, self.UpdateCodeMenu, self.UpdateDisplayedFile, self.UpdateDisplayedParams]
+
+        FunctionsLinks = {}
+        FunctionsLinks[self.UpdateFocus] =                                              ['__init__', '_onDisplayClick', '_OnCodefileSelection', 'GenerateEmptyFramework', 'open_command', 'AddModule', 'RemoveModule', 'AddType', '_OnRemoveType', 'GenerateCode', 'GenerateBuild', 'GenerateBinary', '_OnNewEventTypeTemplate']
+
+        FunctionsLinks[self.UpdateDisplayPositions] =                                   ['__init__', 'GenerateEmptyFramework', 'open_command', 'AddModule', 'RemoveModule', 'RouteModule']
+        FunctionsLinks[self.UpdateDrawing] =             FunctionsLinks[self.UpdateDisplayPositions] +  ['_onDisplayClick', '_OnCodefileSelection', '_OnRemoveType', '_OnAddedParameterChange', '_OnEventTypeTemplateChange', '_OnNewEventTypeTemplate', '_OnDefinedEventTypeFieldChange']
+
+        FunctionsLinks[self.RegisterCurrentCodePad] =                                   [] #TODO
+        FunctionsLinks[self.UpdateCodeMenu] =                                           ['__init__', '_onDisplayClick', '_OnCodefileSelection', 'GenerateEmptyFramework', 'open_command', 'AddModule', 'RemoveModule', 'AddType', '_OnRemoveType', 'GenerateCode', 'GenerateBuild', 'GenerateBinary', 'DisplayModuleCode', '_OnNewEventTypeTemplate']
+        FunctionsLinks[self.UpdateDisplayedFile] =      FunctionsLinks[self.UpdateCodeMenu] +       ['_OnAddedParameterChange', '_OnFrameworkNameChange', '_OnEventTypeTemplateChange', '_OnAddGlobalVariable', '_OnRemoveGlobalVariable', '_OnGlobalVariableChange', '_OnDefinedEventTypeFieldChange', '_OnDefinedEventTypeFieldAddRemove']
+
+        FunctionsLinks[self.UpdateDisplayedParams] =                                    ['__init__', '_onDisplayClick', '_OnCodefileSelection', 'GenerateEmptyFramework', 'open_command', 'AddModule', 'RemoveModule', '_OnRemoveType', '_OnNewEventTypeTemplate', '_OnAddGlobalVariable', '_OnRemoveGlobalVariable', '_OnDefinedEventTypeFieldAddRemove']
+
+        for Function in FunctionsOrder:
+            if OriginFunction in FunctionsLinks[Function]:
+                args, _, _ = inspect.getargs(Function.__code__)
+                CallDict = {key: value for key, value in kwargs.items() if key in args}
+                Function(OriginFunction, **CallDict)
+
+    def UpdateFocus(self, OriginFunction, SetActiveItem = True, ActiveItemValue = None): # Master switch to change focus of the GUI.
+        if not SetActiveItem:
+            return None
+        if OriginFunction in ['__init__', 'GenerateEmptyFramework', 'open_command', 'RemoveModule']:
+            self.ActiveItem = None
+            self.CurrentCodeFile = framework_abstractor.GENERAL_FILENAME
+        elif OriginFunction in ['_onDisplayClick', 'AddModule']:
+            self.ActiveItem = ActiveItemValue
+            if self.ActiveItem is None:
+                self.CurrentCodeFile = framework_abstractor.GENERAL_FILENAME
+            else:
+                self.CurrentCodeFile = self.ActiveItem.FileName()
+        elif OriginFunction == '_OnCodefileSelection':
+            self.CurrentCodeFile = ActiveItemValue    
+            if self.CurrentCodeFile == framework_abstractor.TYPES_DEF_FILE or self.CurrentCodeFile == framework_abstractor.GENERAL_FILENAME:
+                self.ActiveItem = None
+            else:
+                self.ActiveItem= self.Framework.ReferenceModulesDictionnary['name'][self.CurrentCodeFile.split(framework_abstractor.HANDLERS_FILE_NAME_SUFFIX)[0]]
+        elif OriginFunction in ['AddType', '_OnNewEventTypeTemplate']:
+            self.ActiveItem = None
+            self.CurrentCodeFile == framework_abstractor.TYPES_DEF_FILE
+        elif OriginFunction == '_OnRemoveType':
+            if not self.Framework.UserDefinedTypes:
+                self.ActiveItem = None
+                self.CurrentCodeFile = framework_abstractor.GENERAL_FILENAME
+        else:
+            print("Non implemented UpdateFocus caller {0}".format(OriginFunction))
+        self.CodeFileVar.set(self.CurrentCodeFile)
+
+    def UpdateDrawing(self, OriginFunction):
+        print(self.ActiveItem)
         minValues = np.array([0., 0.])
         maxValues = np.array([0., 0.])
 
         self.DisplayAx.clear()
         self.DisplayedLinks = {} 
         for Module in self.Framework.Modules:
+            alpha = 1.
             if not self.WaitingForRoute is None and self.WaitingForRoute == Module['id']:
                 Color = 'k'
             else:
-                if type(Module) == framework_abstractor.LambdaFunctionClass and Module['default']:
+                if type(Module) == framework_abstractor.LambdaModuleClass and Module['default']:
                     Color = 'grey'
+                    Style = '--'
+                    if Module['id'] == -self.SelectedAvailableModulePosition - 1:
+                        alpha = 1.
+                    else:
+                        alpha = 0.4
                 else:
                     if self.Framework.WellDefinedModule(Module):
                         Color = 'g'
                     else:
                         Color = 'r'
-            if not self.ActiveItem is None and (type(self.ActiveItem) == framework_abstractor.ModuleClass or type(self.ActiveItem) == framework_abstractor.LambdaFunctionClass) and Module['id'] == self.ActiveItem['id']:
+            if not self.ActiveItem is None and (type(self.ActiveItem) == framework_abstractor.ModuleClass or type(self.ActiveItem) == framework_abstractor.LambdaModuleClass) and Module['id'] == self.ActiveItem['id']:
                 Style = '-'
+                alpha = 1.
             else:
                 Style = '--'
-            self.DrawModule(Module, Style, Color)
+            self.DrawModule(Module, Style, Color, alpha)
             minValues = np.minimum(minValues, self.DisplayedModulesPositions[Module['id']] - 1.5*self.ModulesDiameter)
             maxValues = np.maximum(maxValues, self.DisplayedModulesPositions[Module['id']] + 1.5*self.ModulesDiameter)
 
@@ -810,11 +817,10 @@ class GUI:
 
         for nSlot, AvailableSlotAndParent in enumerate(self.AvailablesModulesPositions):
             Color = 'grey'
+            Style = '--'
             if nSlot == self.SelectedAvailableModulePosition or nSlot == self.SelectedAvailableChameleonModulePosition:
-                Style = '-'
                 alpha = 1.
             else:
-                Style = '--'
                 alpha = 0.4
             self.DrawModule({'nSlot':nSlot, 'id': None}, Style, Color, alpha)
             minValues = np.minimum(minValues, AvailableSlotAndParent[0] - self.ModulesDiameter)
@@ -841,7 +847,7 @@ class GUI:
             ModuleName = Module['name']
             ModuleEvFields = Module['module']['ev_fields']
             ModuleOutputFields = Module['ev_outputs']
-        elif type(Module) == framework_abstractor.LambdaFunctionClass:
+        elif type(Module) == framework_abstractor.LambdaModuleClass:
             ModulePosition = self.DisplayedModulesPositions[Module['id']]
             ModuleName = Module['name']
             ModuleEvFields = []
@@ -860,12 +866,13 @@ class GUI:
                 HAlign = 'left'
                 FieldsTextPosition = ModulePosition + self.ModulesDiameter/2 * 1.2 * np.array([1., 0])
             ModuleFieldsString = 'Required fields for {0}:\n'.format(ModuleEvFields[0]) + ', '.join(ModuleEvFields[1:])
-            if list(ModuleOutputFields.keys()):
-                ModuleFieldsString = ModuleFieldsString + '\nOutputs :'
-                for handle, Fields in list(ModuleOutputFields.items()):
-                    ModuleFieldsString = ModuleFieldsString + '\n* ' + handle 
-                    for Field in Fields:
-                        ModuleFieldsString += '\n  -> {0} {1}'.format(Field['type'], Field['name'])
+            if self.Options['display_module_ev_outputs']:
+                if list(ModuleOutputFields.keys()):
+                    ModuleFieldsString = ModuleFieldsString + '\nOutputs :'
+                    for handle, Fields in list(ModuleOutputFields.items()):
+                        ModuleFieldsString = ModuleFieldsString + '\n* ' + handle 
+                        for Field in Fields:
+                            ModuleFieldsString += '\n  -> {0} {1}'.format(Field['type'], Field['name'])
             self.DisplayAx.text(FieldsTextPosition[0], FieldsTextPosition[1], s = ModuleFieldsString, bbox={'facecolor': Color, 'alpha': 1, 'pad': 2}, horizontalalignment=HAlign, verticalalignment='center', zorder=10, fontsize = 8)
     
     def DrawAvailableParentsLinks(self):
@@ -889,7 +896,7 @@ class GUI:
             self.DisplayAx.plot([End[0], End[0]], [YStep[1], End[1]], ls = Style, color = Color, alpha = alpha)
 
     def DrawLinksToChildrens(self, Module, ModuleColor):
-        if type(ModuleColor) == framework_abstractor.LambdaFunctionClass:
+        if type(Module) == framework_abstractor.LambdaModuleClass:
             return None
         HandlersParamsIndexes = Module.FindModuleHandlers()
         Links = []
@@ -897,7 +904,7 @@ class GUI:
         for HandlerIndex in HandlersParamsIndexes:
             ChildrenName = Module['parameters'][HandlerIndex].split('@')[1]
             ChildrenModule = self.Framework.ReferenceModulesDictionnary['name'][ChildrenName]
-            Links += [(Module['id'], ChildrenModule['id'], 1.-(ChildrenModule['parent_ids'].index(Module['id'])+1.+ChildrenModule.HasOperator())/(len(ChildrenModule['parent_ids'])+1.+ChildrenModule.HasOperator()))]
+            Links += [(Module['id'], ChildrenModule['id'], 1.-(ChildrenModule['parent_ids'].index(Module['id'])+1.+ChildrenModule.HasOperator())/(len(ChildrenModule['parent_ids'])+1.+ChildrenModule.HasOperator()), Module.returned_event_type[Module.module['parameters'][HandlerIndex]['name']]['name'])]
 
         for nLink, Link in enumerate(Links):
             ChildrenModule = self.Framework.ReferenceModulesDictionnary['id'][Link[1]]
@@ -905,12 +912,12 @@ class GUI:
                 Color = 'grey'
             else:
                 Color = ModuleColor
-            LinkTuple = framework_abstractor.GetLinkTuple(Link[0], Link[1])
-            if not self.ActiveItem is None and type(self.ActiveItem) == tuple and self.ActiveItem == framework_abstractor.GetLinkTuple(Link[0], Link[1]):
+            LinkStr = framework_abstractor.GetLinkStr(Link[0], Link[1])
+            if not self.ActiveItem is None and type(self.ActiveItem) == str and self.ActiveItem == LinkStr:
                 Style = '-'
             else:
                 Style = ':'
-            if (self.SelectedAvailableModulePosition < 0 and -self.SelectedAvailableModulePosition == Link[1]):
+            if (self.SelectedAvailableModulePosition < 0 and -self.SelectedAvailableModulePosition - 1 == Link[1]):
                 alpha = 1.
             else:
                 alpha = 0.4
@@ -921,8 +928,8 @@ class GUI:
             self.DisplayAx.plot([Start[0], End[0]], [YStep[1], YStep[1]], ls = Style, color = Color, alpha = alpha)
             self.DisplayAx.plot([End[0], End[0]], [YStep[1], End[1]], ls = Style, color = Color, alpha = alpha)
 
-            LinkStr = Module.returned_event_type['name']
-            self.DisplayedLinks[LinkTuple] = self.DisplayAx.text(YStep[0], YStep[1], s = LinkStr, zorder = 5, bbox={'facecolor': 'white', 'alpha': 1, 'pad': 2, 'ls': Style}, horizontalalignment='center', verticalalignment='center')
+            LinkStr = framework_abstractor.GetLinkStr(Link[0], Link[1])
+            self.DisplayedLinks[LinkStr] = self.DisplayAx.text(YStep[0], YStep[1], s = Link[3], zorder = 5, bbox={'facecolor': 'white', 'alpha': 1, 'pad': 2, 'ls': Style}, horizontalalignment='center', verticalalignment='center')
 
     def _OnParameterChange(self, StringVar, ParamIndex, DisplayIndex):
         print("Parameter : {0}, {1}".format(ParamIndex, DisplayIndex))
@@ -930,7 +937,10 @@ class GUI:
         self.DisplayedParams[DisplayIndex][0]['foreground'] = self.GetParamDisplayColor(ParamIndex)
 
     def _OnAddedParameterChange(self, StringVar, ParamIndex, DisplayIndex):
-        AddedParamName = self._GetBlankAddedParams()[ParamIndex]['name']
+        if type(self.ActiveItem) == framework_abstractor.ModuleClass:
+            AddedParamName = self._GetModuleAddedParams()[ParamIndex]['name']
+        elif type(self.ActiveItem) == str:
+            AddedParamName = self._GetLinkAddedParams()[ParamIndex]['name']
         # First check if name is ok and available
         if AddedParamName == 'Name':
             AskedName = StringVar.get()
@@ -942,13 +952,12 @@ class GUI:
             else:
                 self.DisplayedParams[DisplayIndex][0]['foreground'] = 'black'
 
-            if not self.ActiveItem is None and type(self.ActiveItem) == framework_abstractor.ModuleClass:
+            if type(self.ActiveItem) == framework_abstractor.ModuleClass:
                 self.Framework.ChangeModuleName(self.ActiveItem, AskedName)
 
-                self.DrawFramework()
-                self.Update()
-                self.DisplayedParams[DisplayIndex][-1].focus_set()
-                self.DisplayedParams[DisplayIndex][-1].icursor(CursorIndex)
+                self.GUIUpdate('_OnAddedParameterChange')
+                #self.DisplayedParams[DisplayIndex][-1].focus_set()
+                #self.DisplayedParams[DisplayIndex][-1].icursor(CursorIndex)
 
     def _OnFrameworkNameChange(self, StrVar):
         AskedName = StrVar.get()
@@ -956,8 +965,7 @@ class GUI:
         if not AskedName:
             AskedName = framework_abstractor.DEFAULT_NAME
         self.MainWindow.title('Beaver - {0}'.format(AskedName))
-        self.Framework.UpdateVariablesFile()
-        self.UpdateDisplayedCodefile(self.CurrentCodeFile, SaveCurrentFile = False)
+        self.GUIUpdate('_OnFrameworkNameChange')
 
     def _OnTemplateChange(self, StringVar, TemplateIndex, DisplayIndex):
         print("Template : {0}, {1}".format(TemplateIndex, DisplayIndex))
@@ -972,49 +980,32 @@ class GUI:
         else:
             self.DisplayedParams[DisplayIndex][0]['foreground'] = 'green'
 
-        self.Framework.SetType(self.ActiveItem, self.AvailableTypes[TypeName], [])
-
-        self.DrawFramework()
-        self.UpdateDisplayedCodefile(SaveCurrentFile = False)
+        self.ActiveItem.SetEventTemplate(self.AvailableTypes[TypeName])
+        self.GUIUpdate('_OnEventTypeTemplateChange')
 
     def _OnNewEventTypeTemplate(self, StringVar, TemplateIndex, DisplayIndex):
         self.Framework.AddNewType()
-        self.UpdateDisplayedCodefile(framework_abstractor.TYPES_DEF_FILE, SaveCurrentFile = False)
-        self.ActiveItem = framework_abstractor.TYPES_DEF_FILE
-        self.Update()
+        self.GUIUpdate('_OnNewEventTypeTemplate')
 
     def _OnAddGlobalVariable(self):
         self.Framework.AddGlobalVariable()
-        self.Update()
         self.Framework.UpdateVariablesFile()
-        self.UpdateDisplayedCodefile(self.CurrentCodeFile, SaveCurrentFile = False)
+        self.GUIUpdate('_OnAddGlobalVariable')
 
     def _OnRemoveGlobalVariable(self, VarName):
         for nVariable, Variable in enumerate(self.Framework.GlobalVariables):
             if Variable['name'] == VarName:
                 break
         self.Framework.GlobalVariables.pop(nVariable)
-        self.Update()
-        self.UpdateDisplayedCodefile(self.CurrentCodeFile, SaveCurrentFile = False)
         self.Framework.UpdateVariablesFile()
-        self.UpdateDisplayedCodefile(self.CurrentCodeFile, SaveCurrentFile = False)
+        self.GUIUpdate('_OnRemoveGlobalVariable')
 
     def _OnGlobalVariableChange(self, StrVar, nVar, ModValue, DisplayNumber):
-#        if ModValue == 'name':
-#            ColumnIndex = 0
-#        elif ModValue == 'type':
-#            ColumnIndex = 1
-#        elif  ModValue == 'value':
-#            ColumnIndex = 2
-#        CursorIndex = self.DisplayedParams[DisplayIndex][ColumnIndex].index(Tk.INSERT)
         StrValue = StrVar.get()
         print(StrValue)
         self.Framework.GlobalVariables[nVar][ModValue] = StrValue
         self.Framework.UpdateVariablesFile()
-        self.UpdateDisplayedCodefile(self.CurrentCodeFile, SaveCurrentFile = False)
-
-#        self.DisplayedParams[DisplayIndex][ColumnIndex].focus_set()
-#        self.DisplayedParams[DisplayIndex][ColumnIndex].icursor(CursorIndex)
+        self.GUIUpdate('_OnGlobalVariableChange')
 
     def _AddedParamValidity(self, AddedParamName, AddedParamValue):
         if AddedParamName == 'Name':
@@ -1029,7 +1020,7 @@ class GUI:
     def _GetLinkAddedParams(self):
         return []
 
-    def ChangeDisplayedParams(self, Mod):
+    def UpdateDisplayedParams(self, OriginFunction, Mod = None):
         for Line in self.DisplayedParams:
             for Field in Line:
                 Field.destroy()
@@ -1045,7 +1036,7 @@ class GUI:
             ModuleParameters = []
             ModuleTemplates = []
 
-        elif self.ActiveItem.__class__ == framework_abstractor.LambdaFunctionClass:
+        elif self.ActiveItem.__class__ == framework_abstractor.LambdaModuleClass:
             AddedParams = self._GetModuleAddedParams()
             ModuleParameters = []
             ModuleTemplates = []
@@ -1094,7 +1085,7 @@ class GUI:
                 CBFunction = self._OnAddedParameterChange
                 if 'default' in Field.keys():
                     StrVar.set(Field['default'])
-                if type(self.ActiveItem) == framework_abstractor.LambdaFunctionClass:
+                if type(self.ActiveItem) == framework_abstractor.LambdaModuleClass:
                     EntryEnabled = False
 
             elif Field in ModuleParameters:
@@ -1250,7 +1241,7 @@ class GUI:
                 self.DisplayedParams[-1][-1].grid(row=len(self.DisplayedParams)-1, column=0, sticky = Tk.N)
                 StrVar = Tk.StringVar(self.MainWindow)
                 StrVar.set(TypeName)
-                StrVar.trace("w", lambda name, index, mode, sv=StrVar, TypeName = TypeName, nField = None, DisplayNumber = len(self.DisplayedParams)-1, ModValue = 'name': self._OnDefinedEventTypeChange(sv, TypeName, nField, ModValue, DisplayNumber))
+                StrVar.trace("w", lambda name, index, mode, sv=StrVar, TypeName = TypeName, nField = None, DisplayNumber = len(self.DisplayedParams)-1, ModValue = 'name': self._OnDefinedEventTypeFieldChange(sv, TypeName, nField, ModValue, DisplayNumber))
                 self.DisplayedParams[-1] += [Tk.Entry(self.ParamsValuesFrame, textvariable = StrVar, width = 60, bg = 'white')]
                 self.DisplayedParams[-1][-1].grid(row=len(self.DisplayedParams)-1, column=1, sticky = Tk.N)
 
@@ -1262,29 +1253,29 @@ class GUI:
                     self.DisplayedParams += [[]]
                     StrVar = Tk.StringVar(self.MainWindow)
                     StrVar.set(Field['type'])
-                    StrVar.trace("w", lambda name, index, mode, sv=StrVar, TypeName = TypeName, nField = nFieldInType, DisplayNumber = len(self.DisplayedParams)-1, ModValue = 'type': self._OnDefinedEventTypeChange(sv, TypeName, nField, ModValue, DisplayNumber))
+                    StrVar.trace("w", lambda name, index, mode, sv=StrVar, TypeName = TypeName, nField = nFieldInType, DisplayNumber = len(self.DisplayedParams)-1, ModValue = 'type': self._OnDefinedEventTypeFieldChange(sv, TypeName, nField, ModValue, DisplayNumber))
                     self.DisplayedParams[-1] += [Tk.Entry(self.ParamsValuesFrame, textvariable = StrVar, width = 20, bg = 'white')]
                     self.DisplayedParams[-1][-1].grid(row=len(self.DisplayedParams)-1, column=0, sticky = Tk.N)
 
                     StrVar = Tk.StringVar(self.MainWindow)
                     StrVar.set(Field['name'])
-                    StrVar.trace("w", lambda name, index, mode, sv=StrVar, TypeName = TypeName, nField = nFieldInType, DisplayNumber = len(self.DisplayedParams)-1, ModValue = 'name': self._OnDefinedEventTypeChange(sv, TypeName, nField, ModValue, DisplayNumber))
+                    StrVar.trace("w", lambda name, index, mode, sv=StrVar, TypeName = TypeName, nField = nFieldInType, DisplayNumber = len(self.DisplayedParams)-1, ModValue = 'name': self._OnDefinedEventTypeFieldChange(sv, TypeName, nField, ModValue, DisplayNumber))
                     self.DisplayedParams[-1] += [Tk.Entry(self.ParamsValuesFrame, textvariable = StrVar, width = 60, bg = 'white')]
                     self.DisplayedParams[-1][-1].grid(row=len(self.DisplayedParams)-1, column=1, sticky = Tk.N)
 
-                    self.DisplayedParams[-1] += [Tk.Button(self.ParamsValuesFrame, text = '-', command = lambda TypeName = TypeName, nField = nFieldInType: self._OnDefinedEventTypeAddRemove(TypeName, nField))]
+                    self.DisplayedParams[-1] += [Tk.Button(self.ParamsValuesFrame, text = '-', command = lambda TypeName = TypeName, nField = nFieldInType: self._OnDefinedEventTypeFieldAddRemove(TypeName, nField))]
                     self.DisplayedParams[-1][-1].grid(row=len(self.DisplayedParams)-1, column=2, sticky = Tk.N+Tk.E+Tk.W)
 
                 nFieldPossible += 1
             if nFieldPossible in DisplayedFieldsIndexes:
-                self.DisplayedParams += [[Tk.Button(self.ParamsValuesFrame, text = '+', command = lambda TypeName = TypeName, nField = None: self._OnDefinedEventTypeAddRemove(TypeName, nField))]]
+                self.DisplayedParams += [[Tk.Button(self.ParamsValuesFrame, text = '+', command = lambda TypeName = TypeName, nField = None: self._OnDefinedEventTypeFieldAddRemove(TypeName, nField))]]
                 self.DisplayedParams[-1][-1].grid(row=len(self.DisplayedParams)-1, column=0, columnspan = 3, sticky = Tk.N+Tk.E+Tk.W)
             nFieldPossible += 1
         if self.CurrentMinParamDisplayed + self.NFieldsDisplayed < NItemsFields:
             self.DisplayedParams += [[Tk.Label(self.ParamsValuesFrame, text = '...', width = 20, anchor = Tk.W)]]
             self.DisplayedParams[-1][0].grid(row=len(self.DisplayedParams)-1, column = 0)
 
-    def _OnDefinedEventTypeChange(self, StrVar, TypeName, nField, ModValue, DisplayIndex):
+    def _OnDefinedEventTypeFieldChange(self, StrVar, TypeName, nField, ModValue, DisplayIndex):
         if ModValue == 'type':
             ColumnIndex = 0
         elif ModValue == 'name':
@@ -1299,35 +1290,21 @@ class GUI:
 #TODO : change references to this event type
             self.Framework.WriteTypesFile()
 
-            self.ActiveItem = framework_abstractor.TYPES_DEF_FILE
-            self.Update()
         else:
             self.Framework.UserDefinedTypes[TypeName]['fields'][nField][ModValue] = StrVar.get()
             self.Framework.WriteTypesFile()
-            self.ActiveItem = framework_abstractor.TYPES_DEF_FILE
-            self.Update()
 
+        self.GUIUpdate('_OnDefinedEventTypeFieldChange')
         self.DisplayedParams[DisplayIndex][ColumnIndex].focus_set()
         self.DisplayedParams[DisplayIndex][ColumnIndex].icursor(CursorIndex)
 
-    def _OnRemoveType(self, TypeName):
-        self.Framework.RemoveType(TypeName)
-        self.Framework.WriteTypesFile()
-
-        if not self.Framework.UserDefinedTypes:
-            self.ActiveItem = None
-        self.Update()
-
-    def _OnDefinedEventTypeAddRemove(self, TypeName, nField):
+    def _OnDefinedEventTypeFieldAddRemove(self, TypeName, nField):
         if nField is None:
             self.Framework.UserDefinedTypes[TypeName]['fields'] += [{'type':'', 'name': ''}]
-            self.ChangeDisplayedParams(None)
         else:
             self.Framework.UserDefinedTypes[TypeName]['fields'].pop(nField)
             self.Framework.WriteTypesFile()
-
-            self.UpdateDisplayedCodefile(framework_abstractor.TYPES_DEF_FILE, SaveCurrentFile = False)
-            self.Update()
+        self.GUIUpdate('_OnDefinedEventTypeFieldAddRemove')
 
     def GetAddedParamDisplayColor(self, ParamName, ParamValue):
         if not self._AddedParamValidity(ParamName, ParamValue):
